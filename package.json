@@ -2,6 +2,7 @@
   "name": "bakery-bot",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "description": "Bakery Bot — Discord bot + admin dashboard for Maiden's Bakery, a cluster of Nikke unions (TypeScript, discord.js, Next.js, Drizzle, Postgres, Railway)",
   "workspaces": [
     "apps/*",

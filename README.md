@@ -58,6 +58,10 @@ General moderation (ban/kick/timeout/etc.) is intentionally left to Discord's ow
 
 Maiden is an open-source TypeScript project (discord.js + a Next.js dashboard + Postgres). If you'd like to **contribute, self-host, or understand how she works**, everything is in **[docs/development.md](docs/development.md)**.
 
+## License
+
+Licensed under the [GNU AGPL-3.0](LICENSE). If you run a modified version as a network service, you must make your source available under the same license.
+
 ---
 
-📄 [Privacy Policy](PRIVACY.md) · [Terms of Service](TERMS.md)
+📄 [Privacy Policy](PRIVACY.md) · [Terms of Service](TERMS.md) · ⚖️ [License](LICENSE)
