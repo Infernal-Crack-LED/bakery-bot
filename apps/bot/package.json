@@ -1,0 +1,37 @@
+{
+  "name": "@app/bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "prebuild": "tsc -p ../../packages/db",
+    "build": "tsc",
+    "pretypecheck": "tsc -p ../../packages/db",
+    "pretest": "tsc -p ../../packages/db",
+    "start": "node dist/index.js",
+    "register": "node dist/deploy-commands.js",
+    "deploy-commands": "tsx src/deploy-commands.ts",
+    "sync:nikke": "tsx src/scripts/sync-nikke.ts",
+    "sync:emojis": "tsx src/scripts/sync-emojis.ts",
+    "refresh:prydwen": "tsx src/scripts/refresh-prydwen.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@app/db": "*",
+    "chrono-node": "^2.9.1",
+    "discord.js": "^14.16.3",
+    "drizzle-orm": "^0.36.4",
+    "node-cron": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,2 @@
+ALTER TABLE "guild_config" ADD COLUMN "news_channel_ids" jsonb;--> statement-breakpoint
+UPDATE "guild_config" SET "news_channel_ids" = jsonb_build_array("news_channel_id") WHERE "news_channel_id" IS NOT NULL AND "news_channel_ids" IS NULL;

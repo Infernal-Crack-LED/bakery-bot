@@ -1,0 +1,15 @@
+# build output
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# deps
+node_modules/
+
+# generated migrations (drizzle owns the formatting)
+packages/db/drizzle/
+
+# lockfiles & generated
+package-lock.json

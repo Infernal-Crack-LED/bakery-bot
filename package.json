@@ -1,0 +1,54 @@
+{
+  "name": "bakery-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bakery Bot — Discord bot + admin dashboard for Maiden's Bakery, a cluster of Nikke unions (TypeScript, discord.js, Next.js, Drizzle, Postgres, Railway)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:db": "npm run build --workspace=@app/db",
+    "predev:bot": "npm run build:db",
+    "dev:bot": "npm run dev --workspace=@app/bot",
+    "predev:web": "npm run build:db",
+    "dev:web": "npm run dev --workspace=@app/web",
+    "build": "npm run build:db && npm run build --workspace=@app/bot && npm run build --workspace=@app/web",
+    "typecheck": "npm run build:db && npm run typecheck --workspaces --if-present",
+    "test": "npm run build:db && npm run test --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky",
+    "db:generate": "npm run db:generate --workspace=@app/db",
+    "db:migrate": "npm run db:migrate --workspace=@app/db",
+    "db:studio": "npm run db:studio --workspace=@app/db",
+    "release": "npm run migrate --workspace=@app/db && npm run register --workspace=@app/bot",
+    "bot:deploy-commands": "npm run deploy-commands --workspace=@app/bot",
+    "sync:nikke": "npm run sync:nikke --workspace=@app/bot",
+    "sync:emojis": "npm run sync:emojis --workspace=@app/bot",
+    "refresh:prydwen": "npm run refresh:prydwen --workspace=@app/bot"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.8",
+    "prettier": "^3.9.4",
+    "typescript-eslint": "^8.62.1"
+  }
+}
