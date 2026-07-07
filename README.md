@@ -2,7 +2,7 @@
 
 **Maiden** is the community Discord bot for **Maiden's Bakery** — the server for a cluster of unions in [NIKKE: Goddess of Victory](https://nikke-en.com). She looks up character info, converts event times to everyone's local timezone, and keeps the community's favourite NIKKE resources one slash-command away.
 
-**[➕ Add it to your Discord!](https://discord.com/oauth2/authorize?client_id=1523719703950790946&permissions=268561488&integration_type=0&scope=applications.commands+bot)**
+**[➕ Add it to your Discord!](https://discord.com/discovery/applications/1523719703950790946)**
 
 Feel free to join the community server, reach out to me on Discord, or check me out on Blablalink.
 
@@ -45,7 +45,7 @@ Pick one or more channels and Maiden watches them for game-news / tweet posts, t
 
 ## For server admins
 
-[Invite Maiden](https://discord.com/oauth2/authorize?client_id=1523719703950790946&permissions=268561488&integration_type=0&scope=applications.commands+bot), then configure her for your server (these commands are hidden from regular members):
+[Invite Maiden](https://discord.com/discovery/applications/1523719703950790946), then configure her for your server (these commands are hidden from regular members):
 
 - **`/config news #channel`** — choose the channel(s) to watch for game news. Run it again to add more; add `remove:true` to stop watching one.
 - **`/config welcome #channel`** · **`/config modlog #channel`** · **`/config show`**
