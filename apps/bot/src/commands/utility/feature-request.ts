@@ -37,7 +37,9 @@ export const command: Command = {
     });
 
     await interaction.editReply({
-      content: '✅ Thanks! Your request has been logged for the team.',
+      content: issue
+        ? `✅ Thanks! Logged your request and opened an issue: ${issue.url}`
+        : '✅ Thanks! Your request has been logged for the team.',
     });
   },
 };
