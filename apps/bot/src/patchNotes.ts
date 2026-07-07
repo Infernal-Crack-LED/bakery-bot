@@ -30,7 +30,7 @@ export const PATCH_NOTES: PatchNote[] = [
       '**`/time`** — turn any event time into a Discord timestamp everyone sees in their own timezone.',
       '**Automatic news timestamps** — an admin picks channels with `/config news`, and Maiden adds a local-time stamp to game-news posts so nobody has to do timezone math.',
       '**Quick links** — `/guides`, plus `/build-guide`, `/pvp-teams-guide`, `/raid-usage`, `/pvp-team-builder`, and `/prydwen`.',
-      '**Handy extras** — `/help`, `/feature-request`, `/unprivate-blabla`, `/github`, and the usual `/serverinfo` · `/userinfo` · `/ping`.',
+      '**Handy extras** — `/help`, `/support`, `/feature-request`, `/unprivate-blabla`, `/github`, and the usual `/serverinfo` · `/userinfo` · `/ping`.',
       '**For admins** — `/config` (news / welcome / mod-log channels), `/sync` to refresh data, and `/perms` for safe bulk permission edits.',
       'Thanks for adding Maiden — feedback and ideas are always welcome via `/feature-request`! 💖',
     ],
