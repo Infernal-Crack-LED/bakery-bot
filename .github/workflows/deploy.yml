@@ -44,11 +44,17 @@ jobs:
           node-version-file: .nvmrc
       - name: Install Railway CLI
         run: npm install -g @railway/cli
+      # Use the commit subject as the Railway deployment title (what a native
+      # GitHub↔Railway connection would show). Read via `git log` — NOT via
+      # ${{ github.event.head_commit.message }} — so a crafted commit message
+      # can't inject shell into the runner.
+      - name: Capture commit message
+        run: echo "DEPLOY_MSG=$(git log -1 --pretty=%s)" >> "$GITHUB_ENV"
       - name: Deploy bot
-        run: railway up --ci --service "@app/bot"
+        run: railway up --ci --service "@app/bot" --message "$DEPLOY_MSG"
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       - name: Deploy web
-        run: railway up --ci --service "@app/web"
+        run: railway up --ci --service "@app/web" --message "$DEPLOY_MSG"
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
