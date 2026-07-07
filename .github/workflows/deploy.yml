@@ -1,0 +1,54 @@
+name: Deploy
+
+# On every push to main: run the safety checks, then — only if they pass —
+# deploy the bot + web services to Railway via the CLI. Auth is a Railway
+# PROJECT TOKEN stored as the `RAILWAY_TOKEN` repo secret, so no Railway↔GitHub
+# connection is needed (works with a single Railway account).
+#
+# Setup (one-time):
+#   1. Railway → your project → Settings → Tokens → create a Project Token.
+#   2. GitHub → repo Settings → Secrets and variables → Actions → add
+#      `RAILWAY_TOKEN` = that token.
+#   3. Disconnect the repo from the Railway services so only this drives deploys.
+on:
+  push:
+    branches: [main]
+
+# Never run two deploys at once; let an in-progress deploy finish.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: typecheck · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  deploy:
+    name: deploy to Railway
+    needs: test # a red build never deploys
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+      - name: Deploy bot
+        run: railway up --ci --service "@app/bot"
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      - name: Deploy web
+        run: railway up --ci --service "@app/web"
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
