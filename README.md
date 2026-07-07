@@ -57,3 +57,7 @@ General moderation (ban/kick/timeout/etc.) is intentionally left to Discord's ow
 ## Under the hood
 
 Maiden is an open-source TypeScript project (discord.js + a Next.js dashboard + Postgres). If you'd like to **contribute, self-host, or understand how she works**, everything is in **[docs/development.md](docs/development.md)**.
+
+---
+
+📄 [Privacy Policy](PRIVACY.md) · [Terms of Service](TERMS.md)
