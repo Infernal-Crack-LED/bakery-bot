@@ -12,6 +12,8 @@ Feel free to reach out to me on Discord or check me out on Blablalink.
 
 ### 🔎 Look up any NIKKE — `/nikke <name>`
 
+![Example of the /nikke command output](images/sample.png)
+
 Type a name — or a nickname like `rrh` for Rapi: Red Hood — and Maiden replies with everything you need at a glance:
 
 - **Profile** — weapon, burst type & cooldown, class, manufacturer, element, and release date
