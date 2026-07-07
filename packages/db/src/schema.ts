@@ -7,6 +7,7 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 /**
@@ -24,6 +25,11 @@ export const guildConfig = pgTable('guild_config', {
   newsChannelId: text('news_channel_id'),
   // Channels the NIKKE news auto-timestamp watches (e.g. tweet feeds).
   newsChannelIds: jsonb('news_channel_ids').$type<string[]>(),
+  // Quote-saver: the emoji members react with to save a message as a quote, and
+  // how many such reactions a message needs. No emoji set ⇒ the feature is off.
+  // The emoji is stored as the admin typed it (e.g. "⭐" or "<:MaidenCopium:123>").
+  quoteEmoji: text('quote_emoji'),
+  quoteThreshold: integer('quote_threshold'),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -78,6 +84,43 @@ export const featureRequests = pgTable('feature_requests', {
 
 export type FeatureRequest = typeof featureRequests.$inferSelect;
 export type NewFeatureRequest = typeof featureRequests.$inferInsert;
+
+/**
+ * Saved quotes. A message becomes a quote once it collects enough of the guild's
+ * configured quote emoji (see guildConfig.quoteEmoji / quoteThreshold). Stored
+ * under the message's author so `/quotes @user` can list them.
+ */
+export const quotes = pgTable(
+  'quotes',
+  {
+    id: serial('id').primaryKey(),
+    guildId: text('guild_id').notNull(),
+    // The quoted message, so we can link back to it and never store it twice.
+    channelId: text('channel_id').notNull(),
+    messageId: text('message_id').notNull(),
+    // Whose quote it is (the message author) + a display tag captured at save
+    // time, so it still renders if they later leave the server.
+    userId: text('user_id').notNull(),
+    authorTag: text('author_tag'),
+    content: text('content').notNull(),
+    // Who tipped the message over the threshold (the last reactor).
+    addedBy: text('added_by'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    guildUserIdx: index('quotes_guild_user_idx').on(
+      table.guildId,
+      table.userId
+    ),
+    // One quote per message — makes storing idempotent (onConflictDoNothing).
+    messageUnique: uniqueIndex('quotes_message_unique').on(table.messageId),
+  })
+);
+
+export type Quote = typeof quotes.$inferSelect;
+export type NewQuote = typeof quotes.$inferInsert;
 
 // ─── NIKKE character data ───────────────────────────────────────────────────
 // Aggregated from Tsareena's sheet + Prydwen + Nikke Synergy by the daily sync

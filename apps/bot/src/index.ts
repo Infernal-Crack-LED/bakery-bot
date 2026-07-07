@@ -28,9 +28,18 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildModeration,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.MessageContent,
   ],
-  partials: [Partials.GuildMember, Partials.User],
+  // Message/Reaction/Channel partials let the quote-saver see reactions on
+  // messages posted before the bot (re)started and thus not in its cache.
+  partials: [
+    Partials.GuildMember,
+    Partials.User,
+    Partials.Message,
+    Partials.Reaction,
+    Partials.Channel,
+  ],
 });
 
 client.commands = new Collection();

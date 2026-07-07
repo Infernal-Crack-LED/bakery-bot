@@ -10,6 +10,7 @@ import {
   getGuildConfig,
   setGuildConfig,
 } from '../../lib/guildConfig.js';
+import { emojiKey, quoteThreshold } from '../../lib/quotes.js';
 import type { Command } from '../../types.js';
 
 export const command: Command = {
@@ -64,6 +65,24 @@ export const command: Command = {
         )
     )
     .addSubcommand((sub) =>
+      sub
+        .setName('quotes')
+        .setDescription(
+          'Configure the quote-saver (react-to-save emoji + threshold).'
+        )
+        .addStringOption((o) =>
+          o
+            .setName('emoji')
+            .setDescription('Emoji members react with to save a quote')
+        )
+        .addIntegerOption((o) =>
+          o
+            .setName('threshold')
+            .setDescription('How many reactions save a message (default 3)')
+            .setMinValue(1)
+        )
+    )
+    .addSubcommand((sub) =>
       sub.setName('show').setDescription('Show the current configuration.')
     ),
   execute: async (interaction) => {
@@ -86,7 +105,48 @@ export const command: Command = {
           `**Mod-log channel:** ${cfg?.modLogChannelId ? `<#${cfg.modLogChannelId}>` : 'not set'}`,
           `**Welcome channel:** ${cfg?.welcomeChannelId ? `<#${cfg.welcomeChannelId}>` : 'not set'}`,
           `**News channels:** ${news.length ? news.map((id) => `<#${id}>`).join(', ') : 'not set'}`,
+          `**Quote emoji:** ${cfg?.quoteEmoji ?? 'not set'}${cfg?.quoteEmoji ? ` (saves at ${quoteThreshold(cfg)} reactions)` : ''}`,
         ].join('\n'),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === 'quotes') {
+      const emoji = interaction.options.getString('emoji');
+      const threshold = interaction.options.getInteger('threshold');
+
+      if (emoji == null && threshold == null) {
+        const cfg = await getGuildConfig(guildId);
+        await interaction.reply({
+          content: cfg?.quoteEmoji
+            ? `Quote-saver: react with ${cfg.quoteEmoji} — a message is saved at **${quoteThreshold(cfg)}** reactions.`
+            : 'Quote-saver is off. Set an emoji with `/config quotes emoji:⭐`.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      if (emoji != null && emojiKey(emoji) == null) {
+        await interaction.reply({
+          content: `❌ "${emoji}" doesn't look like a valid emoji.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const patch: { quoteEmoji?: string; quoteThreshold?: number } = {};
+      if (emoji != null) {
+        patch.quoteEmoji = emoji;
+      }
+      if (threshold != null) {
+        patch.quoteThreshold = threshold;
+      }
+      await setGuildConfig(guildId, patch);
+
+      const cfg = await getGuildConfig(guildId);
+      await interaction.reply({
+        content: `✅ Quote-saver updated. React with ${cfg?.quoteEmoji} — a message is saved at **${quoteThreshold(cfg)}** reactions. View a member's quotes with \`/quotes\`.`,
         flags: MessageFlags.Ephemeral,
       });
       return;

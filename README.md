@@ -37,9 +37,14 @@ Pick one or more channels and Maiden watches them for game-news / tweet posts, t
 - `/unprivate-blabla` — how to make your NIKKE roster public so tools can read your account
 - `/github` — Maiden's source code
 
+### 💬 Save memorable quotes
+
+React to any message with the server's quote emoji — once it hits the configured number of reactions, Maiden saves it under whoever said it. Pull up someone's greatest hits any time with `/quotes @user`. An admin turns it on with `/config quotes emoji:⭐`.
+
 ### ✨ Handy extras
 
 - `/help` — DMs you the full list of commands
+- `/quotes @user` — show a member's saved quotes
 - `/feature-request <idea>` — suggest a feature (it's logged for the maintainer)
 - `/ping` · `/serverinfo` · `/userinfo` — the usual quality-of-life utilities
 
@@ -49,6 +54,7 @@ Pick one or more channels and Maiden watches them for game-news / tweet posts, t
 
 - **`/config news #channel`** — choose the channel(s) to watch for game news. Run it again to add more; add `remove:true` to stop watching one.
 - **`/config welcome #channel`** · **`/config modlog #channel`** · **`/config show`**
+- **`/config quotes emoji:⭐ threshold:3`** — turn on the quote-saver: which reaction saves a message, and how many it takes (default 3).
 - **`/sync`** — refresh the NIKKE data on demand (it also refreshes daily on its own)
 - **`/perms <role> <permission> …`** — bulk-edit one permission for a role across many channels. Previews the changes first and is audit-logged, so it's safe to try.
 

@@ -57,6 +57,13 @@
       "when": 1783413334657,
       "tag": "0007_overrated_deathbird",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783460352373,
+      "tag": "0008_lying_shinko_yamashiro",
+      "breakpoints": true
     }
   ]
 }
