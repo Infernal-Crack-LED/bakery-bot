@@ -196,3 +196,17 @@ export type NewNikkeCharacter = typeof nikkeCharacters.$inferInsert;
 export type NikkeNameDictionaryEntry = typeof nikkeNameDictionary.$inferSelect;
 export type NikkeSyncRun = typeof nikkeSyncRuns.$inferSelect;
 export type NewNikkeSyncRun = typeof nikkeSyncRuns.$inferInsert;
+
+/**
+ * Small key-value store for bot-wide state that isn't tied to a guild — e.g.
+ * the last patch-notes version announced, so it's never posted twice.
+ */
+export const botMeta = pgTable('bot_meta', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type BotMeta = typeof botMeta.$inferSelect;

@@ -15,6 +15,7 @@ import { ensureApplicationEmojis } from './lib/emojis.js';
 import { loadCommands, loadEvents } from './lib/loaders.js';
 import { ICON_EMOJIS, setIconEmojis } from './lib/nikke/icons.js';
 import { runNikkeSync } from './lib/nikke/sync.js';
+import { postPatchNotesIfNew } from './patchNotes.js';
 
 const STATUS_TEXT = 'Watching you pull on the new banner';
 
@@ -62,6 +63,21 @@ async function main(): Promise<void> {
   // Post-deploy data load: kick off a background refresh once the bot is up.
   // Non-blocking, so it never delays or breaks startup.
   void runStartupSyncIfStale();
+
+  // Announce the newest patch note (once) if a new version shipped.
+  void announcePatchNotes();
+}
+
+/** Post patch notes for a new release; fail-soft so it never breaks startup. */
+async function announcePatchNotes(): Promise<void> {
+  if (!hasDatabase()) {
+    return;
+  }
+  try {
+    await postPatchNotesIfNew(client);
+  } catch (error) {
+    console.error('[patchnotes] failed to post', error);
+  }
 }
 
 /**
