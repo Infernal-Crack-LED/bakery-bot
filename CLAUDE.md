@@ -53,6 +53,7 @@ npm run db:generate         # create a migration after editing schema.ts
 npm run db:migrate          # apply migrations (drizzle-kit, local dev)
 npm run release             # deploy step: apply migrations + register commands (compiled; used by Railway)
 npm run bot:deploy-commands # register slash commands with Discord
+npm run bot:clear-guild-commands # remove leftover per-guild commands (dupes of the global ones)
 npm run sync:nikke          # refresh NIKKE data into the DB (Synergy + sheet + Prydwen cache)
 npm run refresh:prydwen     # (run locally, NOT Railway) refresh the Prydwen tier cache
 npm run build               # build db → bot → web (in order)

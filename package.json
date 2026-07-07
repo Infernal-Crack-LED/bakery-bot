@@ -27,6 +27,7 @@
     "db:studio": "npm run db:studio --workspace=@app/db",
     "release": "npm run migrate --workspace=@app/db && npm run register --workspace=@app/bot",
     "bot:deploy-commands": "npm run deploy-commands --workspace=@app/bot",
+    "bot:clear-guild-commands": "npm run clear-guild-commands --workspace=@app/bot",
     "sync:nikke": "npm run sync:nikke --workspace=@app/bot",
     "sync:emojis": "npm run sync:emojis --workspace=@app/bot",
     "refresh:prydwen": "npm run refresh:prydwen --workspace=@app/bot"
