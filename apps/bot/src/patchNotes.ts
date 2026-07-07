@@ -24,11 +24,15 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     version: 'v1.0.0',
-    title: 'Patch notes are live!',
+    title: 'Maiden is here! 🧁',
     notes: [
-      'Maiden now posts patch notes here automatically whenever a new version ships. 🎉',
-      '`/nikke` shows tiers, arena stats, builds, profile icons, and release dates.',
-      '`/time` converts event times to everyone’s local timezone, and news posts get auto-timestamps.',
+      '**`/nikke <name>`** — look up any NIKKE (nicknames like `rrh` work too) and get it all in one embed: a profile at a glance (weapon, burst + cooldown, class, manufacturer, element), **Prydwen** Story/Bossing/PvP tiers, **Nikke Synergy** arena pick & win rates, and **Tsareena’s** builds + pull priority — with links back to every source.',
+      '**`/time`** — turn any event time into a Discord timestamp everyone sees in their own timezone.',
+      '**Automatic news timestamps** — an admin picks channels with `/config news`, and Maiden adds a local-time stamp to game-news posts so nobody has to do timezone math.',
+      '**Quick links** — `/guides`, plus `/build-guide`, `/pvp-teams-guide`, `/raid-usage`, `/pvp-team-builder`, and `/prydwen`.',
+      '**Handy extras** — `/help`, `/feature-request`, `/unprivate-blabla`, `/github`, and the usual `/serverinfo` · `/userinfo` · `/ping`.',
+      '**For admins** — `/config` (news / welcome / mod-log channels), `/sync` to refresh data, and `/perms` for safe bulk permission edits.',
+      'Thanks for adding Maiden — feedback and ideas are always welcome via `/feature-request`! 💖',
     ],
   },
 ];
