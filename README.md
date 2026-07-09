@@ -55,6 +55,7 @@ React to any message with the server's quote emoji — once it hits the configur
 - **`/config news #channel`** — choose the channel(s) to watch for game news. Run it again to add more; add `remove:true` to stop watching one.
 - **`/config welcome #channel`** · **`/config modlog #channel`** · **`/config show`**
 - **`/config quotes emoji:⭐ threshold:3`** — turn on the quote-saver: which reaction saves a message, and how many it takes (default 3).
+- **`/setup-guide`** — DMs you this whole setup checklist, right inside Discord
 - **`/sync`** — refresh the NIKKE data on demand (it also refreshes daily on its own)
 - **`/perms <role> <permission> …`** — bulk-edit one permission for a role across many channels. Previews the changes first and is audit-logged, so it's safe to try.
 
