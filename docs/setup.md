@@ -13,6 +13,9 @@ done in Discord; you'll never touch code.
 
 ## 1. Give Maiden permission to talk
 
+<!-- Permission list mirrors REQUIRED_PERMISSIONS in apps/bot/src/lib/invite.ts.
+     If you change the required permissions, run `npm run sync:install` and update this list. -->
+
 Adding Maiden creates a role for her (usually called "Maiden") that **already
 carries the core permissions** she needs — View Channels, Send Messages, Embed
 Links, Read Message History. So in normal channels there's nothing to do; she can

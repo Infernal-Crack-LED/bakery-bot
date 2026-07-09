@@ -15,6 +15,7 @@ export function buildSetupGuideEmbed(): EmbedBuilder {
         "**If you only read one thing:** I can't post in a **locked channel** (news feeds, announcements) unless you explicitly let me. If you set something up and nothing ever appears, that's almost always why — see step 1."
     )
     .addFields(
+      // Permission list mirrors REQUIRED_PERMISSIONS in lib/invite.ts — keep in sync.
       {
         name: '1 · Permissions (mostly automatic)',
         value:

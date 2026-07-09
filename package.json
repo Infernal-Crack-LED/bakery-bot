@@ -30,6 +30,7 @@
     "bot:clear-guild-commands": "npm run clear-guild-commands --workspace=@app/bot",
     "sync:nikke": "npm run sync:nikke --workspace=@app/bot",
     "sync:emojis": "npm run sync:emojis --workspace=@app/bot",
+    "sync:install": "npm run sync:install --workspace=@app/bot",
     "refresh:prydwen": "npm run refresh:prydwen --workspace=@app/bot"
   },
   "engines": {

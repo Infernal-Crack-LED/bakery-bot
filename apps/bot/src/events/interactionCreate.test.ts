@@ -1,8 +1,8 @@
 import { Collection } from 'discord.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../lib/deadInstall.js', () => ({
-  noteCommandsOnly: vi.fn(),
+vi.mock('../lib/deadInstall.js', () => ({ noteCommandsOnly: vi.fn() }));
+vi.mock('../lib/invite.js', () => ({
   reinviteUrl: () => 'https://invite.example',
 }));
 

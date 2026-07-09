@@ -10,14 +10,6 @@ import { eq } from 'drizzle-orm';
 
 const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // once per guild per day
 
-/** The invite that adds the bot as a real member with the needed permissions. */
-export function reinviteUrl(): string {
-  // Read the client id from env directly (not lib/config, which eagerly requires
-  // DISCORD_TOKEN) so importing this module has no env preconditions.
-  const clientId = process.env.DISCORD_CLIENT_ID ?? '';
-  return `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=347136&scope=bot+applications.commands`;
-}
-
 /**
  * Record a commands-only guild (upsert `lastSeenAt`) and return whether we should
  * show the re-invite nudge now (first time, or past the cooldown). Stamps

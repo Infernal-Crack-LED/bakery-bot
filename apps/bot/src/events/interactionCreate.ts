@@ -1,5 +1,6 @@
 import { Events, MessageFlags } from 'discord.js';
-import { noteCommandsOnly, reinviteUrl } from '../lib/deadInstall.js';
+import { noteCommandsOnly } from '../lib/deadInstall.js';
+import { reinviteUrl } from '../lib/invite.js';
 import type { Event } from '../types.js';
 
 export const event: Event<Events.InteractionCreate> = {
