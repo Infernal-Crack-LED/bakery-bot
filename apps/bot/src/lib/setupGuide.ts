@@ -9,7 +9,7 @@ import { EmbedBuilder } from 'discord.js';
 export function buildSetupGuideEmbed(): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0xf472b6)
-    .setTitle('🧁 Setting Maiden up in your server')
+    .setTitle('Setting Maiden up in your server')
     .setDescription(
       "Everything to do after adding me. Two steps matter; the rest is optional or automatic — and it's all done in Discord.\n\n" +
         "**If you only read one thing:** I can't post in a **locked channel** (news feeds, announcements) unless you explicitly let me. If you set something up and nothing ever appears, that's almost always why — see step 1."

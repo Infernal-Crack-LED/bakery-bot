@@ -1,6 +1,6 @@
 # Setting Maiden up in your server
 
-Welcome! 🧁 This is everything you need to do after adding Maiden. It's quick —
+Welcome! This is everything you need to do after adding Maiden. It's quick —
 two steps really matter, and the rest is optional or happens on its own. It's all
 done in Discord; you'll never touch code.
 
