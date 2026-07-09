@@ -16,13 +16,11 @@ export function buildSetupGuideEmbed(): EmbedBuilder {
     )
     .addFields(
       {
-        name: '1 · Let me talk (permissions)',
+        name: '1 · Permissions (mostly automatic)',
         value:
-          'Adding me makes a **Maiden** role. Give it — server-wide or per channel:\n' +
-          '• **View Channels**\n' +
-          '• **Send Messages**\n' +
-          '• **Embed Links** — so `/nikke` cards & welcomes look right\n' +
-          '• **Read Message History** — so I can read the feed I reply to',
+          'Adding me creates a **Maiden** role that already has what I need — View ' +
+          'Channels, Send Messages, Embed Links, Read Message History. In normal ' +
+          "channels there's nothing to do.",
       },
       {
         name: '⚠️ Locked / announcement channels',

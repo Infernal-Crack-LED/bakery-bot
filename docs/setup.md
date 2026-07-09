@@ -13,14 +13,10 @@ done in Discord; you'll never touch code.
 
 ## 1. Give Maiden permission to talk
 
-Adding Maiden creates a role for her (usually called "Maiden"). Give that role
-these permissions — either server-wide (_Server Settings → Roles → Maiden_) or
-just in the channels she'll use:
-
-- **View Channels**
-- **Send Messages**
-- **Embed Links** — so her `/nikke` cards and welcome messages look right
-- **Read Message History** — so she can read the feed she's replying to
+Adding Maiden creates a role for her (usually called "Maiden") that **already
+carries the core permissions** she needs — View Channels, Send Messages, Embed
+Links, Read Message History. So in normal channels there's nothing to do; she can
+talk out of the box.
 
 **The catch with locked channels.** News and announcement channels usually block
 _everyone_ from posting, and Maiden is caught by that too. So for each channel you
