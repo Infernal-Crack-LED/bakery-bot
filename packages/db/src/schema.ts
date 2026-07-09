@@ -276,3 +276,23 @@ export const guilds = pgTable('guilds', {
 
 export type GuildRow = typeof guilds.$inferSelect;
 export type NewGuildRow = typeof guilds.$inferInsert;
+
+/**
+ * "Dead installs" — guilds where Maiden was authorized for slash commands only
+ * (no `bot` scope), so the bot isn't a member and gateway features don't work.
+ * These are invisible to the guild list; we only learn of one when it sends an
+ * interaction. Recorded here so you have the ids, and to throttle the re-invite
+ * nudge (see events/interactionCreate.ts).
+ */
+export const commandsOnlyGuilds = pgTable('commands_only_guilds', {
+  guildId: text('guild_id').primaryKey(),
+  firstSeenAt: timestamp('first_seen_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  lastNudgedAt: timestamp('last_nudged_at', { withTimezone: true }),
+});
+
+export type CommandsOnlyGuild = typeof commandsOnlyGuilds.$inferSelect;

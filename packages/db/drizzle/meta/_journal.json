@@ -71,6 +71,13 @@
       "when": 1783574110931,
       "tag": "0009_tan_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783631524626,
+      "tag": "0010_bumpy_kinsey_walden",
+      "breakpoints": true
     }
   ]
 }

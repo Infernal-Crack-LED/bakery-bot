@@ -1,5 +1,12 @@
 import { Collection } from 'discord.js';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../lib/deadInstall.js', () => ({
+  noteCommandsOnly: vi.fn(),
+  reinviteUrl: () => 'https://invite.example',
+}));
+
+import { noteCommandsOnly } from '../lib/deadInstall.js';
 import { event } from './interactionCreate.js';
 import type { Command } from '../types.js';
 
@@ -92,5 +99,73 @@ describe('interactionCreate', () => {
     expect(errorLog).toHaveBeenCalled();
 
     errorLog.mockRestore();
+  });
+});
+
+describe('interactionCreate — dead-install nudge', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function fakeGuildInteraction(
+    commands: Collection<string, Command>,
+    opts: { botIsMember: boolean }
+  ) {
+    return {
+      isChatInputCommand: () => true,
+      isAutocomplete: () => false,
+      commandName: 'demo',
+      guildId: 'guild-x',
+      replied: false,
+      deferred: false,
+      client: {
+        commands,
+        guilds: { cache: { has: () => opts.botIsMember } },
+      },
+      reply: vi.fn().mockResolvedValue(undefined),
+      followUp: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  function withDemo() {
+    const commands = new Collection<string, Command>();
+    commands.set('demo', { data: { name: 'demo' } as never, execute: vi.fn() });
+    return commands;
+  }
+
+  it('nudges when the bot is NOT a member of the guild', async () => {
+    vi.mocked(noteCommandsOnly).mockResolvedValue(true);
+    const interaction = fakeGuildInteraction(withDemo(), {
+      botIsMember: false,
+    });
+
+    await event.execute(interaction as any);
+
+    expect(noteCommandsOnly).toHaveBeenCalledWith('guild-x');
+    // command didn't reply, so the nudge uses reply()
+    const payload = interaction.reply.mock.calls.at(-1)?.[0] as {
+      content: string;
+    };
+    expect(payload.content).toMatch(/partially installed/i);
+    expect(payload.content).toContain('https://invite.example');
+  });
+
+  it('does nothing when the bot IS a member', async () => {
+    const interaction = fakeGuildInteraction(withDemo(), { botIsMember: true });
+
+    await event.execute(interaction as any);
+
+    expect(noteCommandsOnly).not.toHaveBeenCalled();
+    expect(interaction.reply).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet when recently nudged (cooldown)', async () => {
+    vi.mocked(noteCommandsOnly).mockResolvedValue(false);
+    const interaction = fakeGuildInteraction(withDemo(), {
+      botIsMember: false,
+    });
+
+    await event.execute(interaction as any);
+
+    expect(noteCommandsOnly).toHaveBeenCalledOnce();
+    expect(interaction.reply).not.toHaveBeenCalled();
   });
 });
