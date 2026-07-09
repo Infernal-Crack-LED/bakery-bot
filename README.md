@@ -50,7 +50,7 @@ React to any message with the server's quote emoji — once it hits the configur
 
 ## For server admins
 
-[Invite Maiden](https://discord.com/discovery/applications/1523719703950790946), then configure her for your server (these commands are hidden from regular members):
+[Invite Maiden](https://discord.com/discovery/applications/1523719703950790946), then follow the **[setup guide](docs/setup.md)** — it walks through the permissions Maiden's role needs (including the locked-channel gotcha that stops news posts) and the `/config` options. In short (these commands are hidden from regular members):
 
 - **`/config news #channel`** — choose the channel(s) to watch for game news. Run it again to add more; add `remove:true` to stop watching one.
 - **`/config welcome #channel`** · **`/config modlog #channel`** · **`/config show`**
