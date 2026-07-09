@@ -28,9 +28,13 @@ beforeEach(() => {
   } as never);
 });
 
+let nextId = 1;
+
 function fakeMessage(opts: {
+  id?: string;
   channelId?: string;
   authorId?: string;
+  content?: string;
   embeds?: Array<{
     title?: string;
     description?: string;
@@ -41,11 +45,14 @@ function fakeMessage(opts: {
   const reply = vi.fn().mockResolvedValue(undefined);
   return {
     message: {
+      id: opts.id ?? `msg-${nextId++}`,
       inGuild: () => true,
       guildId: 'guild-1',
       channelId: opts.channelId ?? NEWS_CHANNEL,
+      webhookId: 'wh-1', // TweetShift posts via a webhook
       author: { id: opts.authorId ?? 'tweetshift-bot' },
       client: { user: { id: 'bakery-bot' } },
+      content: opts.content ?? '',
       embeds: (opts.embeds ?? []).map((e) => ({
         title: e.title ?? null,
         description: e.description ?? null,
@@ -164,5 +171,53 @@ describe('messageCreate (NIKKE news auto-timestamp)', () => {
     await event.execute(message as never);
 
     expect(reply).not.toHaveBeenCalled();
+  });
+
+  it('reads the message content too (TweetShift "text" mode, no embed)', async () => {
+    const { message, reply } = fakeMessage({
+      content: 'Pick Up period: 2025-07-10 20:00 (UTC)',
+    });
+
+    await event.execute(message as never);
+
+    expect(reply).toHaveBeenCalledOnce();
+    const payload = reply.mock.calls[0]?.[0] as { content: string };
+    expect(payload.content).toContain('<t:1752177600');
+  });
+
+  it('does not stamp a bare tweet URL (TweetShift "link only" create)', async () => {
+    // The status id must not be misread as a date; the embed (and its time)
+    // only arrive on the follow-up update.
+    const { message, reply } = fakeMessage({
+      content: 'https://twitter.com/NIKKE_en/status/2075022610950504656',
+    });
+
+    await event.execute(message as never);
+
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it('ignores human (non-webhook) messages, even with an event time', async () => {
+    const { message, reply } = fakeMessage({
+      content: 'raid starts 2025-07-10 20:00 UTC',
+    });
+    (message as { webhookId: string | null }).webhookId = null; // a real user
+    (message.author as { bot?: boolean }).bot = false;
+
+    await event.execute(message as never);
+
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it('stamps a post only once even if handled again (dedupe)', async () => {
+    const { message, reply } = fakeMessage({
+      id: 'dupe-1',
+      embeds: [{ description: 'Event at 2025-07-10 20:00 UTC' }],
+    });
+
+    await event.execute(message as never);
+    await event.execute(message as never); // e.g. a later edit
+
+    expect(reply).toHaveBeenCalledOnce();
   });
 });

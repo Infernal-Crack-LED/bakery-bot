@@ -12,10 +12,16 @@ import type { Event } from '../types.js';
 /**
  * NIKKE news auto-timestamp.
  *
- * Watches a server's news/tweet channel (TweetShift posts each tweet as an
- * embed), reads the tweet TEXT, finds any event date/time in it, and replies to
- * the message with a Discord `<t:…>` stamp so every member sees the time in
- * their own local timezone.
+ * Watches a server's news/tweet channel (TweetShift posts each tweet), reads the
+ * tweet TEXT, finds any event date/time in it, and replies with a Discord `<t:…>`
+ * stamp so every member sees the time in their own local timezone.
+ *
+ * IMPORTANT — why this also lives on message UPDATE (see messageUpdate.ts):
+ * TweetShift's "link only" display mode posts just the tweet URL as the message
+ * content; Discord then unfurls it into an embed a moment LATER via a message
+ * edit. So at MessageCreate time `embeds` is often empty and the real text only
+ * shows up on the follow-up update. We therefore run the same handler for both
+ * events and de-duplicate by message id so a post is stamped exactly once.
  *
  * Per-server setup: an admin runs `/config news #channel` (repeat for multiple
  * channels). (For backwards compatibility, the env var `NIKKE_NEWS_CHANNEL_ID`
@@ -26,6 +32,20 @@ import type { Event } from '../types.js';
  * wins over this default.
  */
 export const DEFAULT_OFFSET_MINUTES = 9 * 60; // UTC+9
+
+/**
+ * Message ids we've already stamped, so the create + the later embed-unfurl
+ * update (and any further edits) don't each produce a reply. In-memory is fine:
+ * the worst case after a restart is re-stamping a single edited post. Capped so
+ * it can't grow without bound.
+ */
+const stamped = new Set<string>();
+function rememberStamped(id: string): void {
+  stamped.add(id);
+  if (stamped.size > 2000) {
+    stamped.clear();
+  }
+}
 
 /** The set of channels to watch for this guild: per-guild config + env fallback. */
 async function resolveNewsChannelIds(guildId: string): Promise<Set<string>> {
@@ -59,49 +79,80 @@ function embedText(embed: Embed): string {
   return parts.join('\n');
 }
 
+/**
+ * All parseable text in a news message: every embed's text plus the message
+ * content with URLs stripped. Stripping URLs matters because "link only" mode
+ * posts the bare tweet URL as content, and the long status id in it could
+ * otherwise be misread as a number/date.
+ */
+function messageText(message: Message): string {
+  const parts = message.embeds.map(embedText);
+  if (message.content) {
+    parts.push(message.content.replace(/https?:\/\/\S+/g, ' '));
+  }
+  return parts.join('\n').trim();
+}
+
+/**
+ * Handle a possible news post from either MessageCreate or MessageUpdate: if the
+ * message is in a watched channel and mentions an event time, reply with a
+ * local-time stamp. De-duplicated so a post is only ever stamped once.
+ */
+export async function handleNewsMessage(message: Message): Promise<void> {
+  if (!message.inGuild()) {
+    return;
+  }
+  // Never react to our own replies (would loop).
+  if (message.author?.id === message.client.user?.id) {
+    return;
+  }
+  // Feeds post via a webhook (TweetShift) or a bot. Cheaply skip the flood of
+  // human chat BEFORE the per-guild config lookup, so we don't hit the DB on
+  // every message in the server.
+  if (!message.webhookId && !message.author?.bot) {
+    return;
+  }
+  if (stamped.has(message.id)) {
+    return;
+  }
+
+  const watched = await resolveNewsChannelIds(message.guildId);
+  if (!watched.has(message.channelId)) {
+    return;
+  }
+
+  const text = messageText(message);
+  if (!text) {
+    return;
+  }
+
+  const stamps = extractEventTimestamps(text, DEFAULT_OFFSET_MINUTES);
+  if (stamps.length === 0) {
+    // Don't remember it — a "link only" post arrives empty and only gets its
+    // embed (and thus its date) on a later update; let that update try again.
+    return;
+  }
+
+  rememberStamped(message.id);
+
+  const content = stamps
+    .map(
+      (s) =>
+        `🕒 ${discordTimestamp(s.epochSeconds, 'F')} (${discordTimestamp(
+          s.epochSeconds,
+          'R'
+        )})`
+    )
+    .join('\n');
+
+  await message
+    .reply({ content, allowedMentions: { repliedUser: false } })
+    .catch(() => null);
+}
+
 export const event: Event<Events.MessageCreate> = {
   name: Events.MessageCreate,
   execute: async (message: Message) => {
-    if (!message.inGuild()) {
-      return;
-    }
-    // Never react to our own replies (would loop).
-    if (message.author?.id === message.client.user?.id) {
-      return;
-    }
-    // The tweets live in embeds; nothing to do without one. These cheap checks
-    // run before the per-guild config lookup so most messages exit immediately.
-    if (message.embeds.length === 0) {
-      return;
-    }
-
-    const watched = await resolveNewsChannelIds(message.guildId);
-    if (!watched.has(message.channelId)) {
-      return;
-    }
-
-    const text = message.embeds.map(embedText).join('\n').trim();
-    if (!text) {
-      return;
-    }
-
-    const stamps = extractEventTimestamps(text, DEFAULT_OFFSET_MINUTES);
-    if (stamps.length === 0) {
-      return;
-    }
-
-    const content = stamps
-      .map(
-        (s) =>
-          `🕒 ${discordTimestamp(s.epochSeconds, 'F')} (${discordTimestamp(
-            s.epochSeconds,
-            'R'
-          )})`
-      )
-      .join('\n');
-
-    await message
-      .reply({ content, allowedMentions: { repliedUser: false } })
-      .catch(() => null);
+    await handleNewsMessage(message);
   },
 };
