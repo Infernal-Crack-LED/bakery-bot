@@ -12,6 +12,7 @@ import cron from 'node-cron';
 import { maidenCopiumPng } from './assets/maiden-copium.js';
 import { config } from './config.js';
 import { ensureApplicationEmojis } from './lib/emojis.js';
+import { reconcileGuilds } from './lib/guilds.js';
 import { loadCommands, loadEvents } from './lib/loaders.js';
 import { ICON_EMOJIS, setIconEmojis } from './lib/nikke/icons.js';
 import { runNikkeSync } from './lib/nikke/sync.js';
@@ -75,6 +76,23 @@ async function main(): Promise<void> {
 
   // Announce the newest patch note (once) if a new version shipped.
   void announcePatchNotes();
+
+  // Reconcile the server-membership table with reality (joins/leaves that
+  // happened while offline, and existing servers that don't fire guildCreate).
+  void reconcileGuildsIfDb();
+}
+
+/** Sync the `guilds` table with the current server list; fail-soft. */
+async function reconcileGuildsIfDb(): Promise<void> {
+  if (!hasDatabase()) {
+    return;
+  }
+  try {
+    const count = await reconcileGuilds(client);
+    console.log(`[guilds] startup reconcile — in ${count} server(s)`);
+  } catch (error) {
+    console.error('[guilds] startup reconcile failed', error);
+  }
 }
 
 /** Post patch notes for a new release; fail-soft so it never breaks startup. */

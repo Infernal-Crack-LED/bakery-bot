@@ -64,6 +64,13 @@
       "when": 1783460352373,
       "tag": "0008_lying_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783574110931,
+      "tag": "0009_tan_masque",
+      "breakpoints": true
     }
   ]
 }

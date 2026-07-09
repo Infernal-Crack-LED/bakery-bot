@@ -253,3 +253,26 @@ export const botMeta = pgTable('bot_meta', {
 });
 
 export type BotMeta = typeof botMeta.$inferSelect;
+
+/**
+ * Servers Maiden is in — one row per guild, so you can see how many servers
+ * have the bot and track joins/leaves over time. Maintained by the
+ * guildCreate/guildDelete events plus a reconcile at startup. `leftAt` is null
+ * while the bot is currently in that server, and set when it's removed;
+ * `joinedAt` is preserved across a re-add.
+ */
+export const guilds = pgTable('guilds', {
+  id: text('id').primaryKey(), // guild snowflake
+  name: text('name'),
+  memberCount: integer('member_count'),
+  joinedAt: timestamp('joined_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  leftAt: timestamp('left_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type GuildRow = typeof guilds.$inferSelect;
+export type NewGuildRow = typeof guilds.$inferInsert;
