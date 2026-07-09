@@ -230,6 +230,9 @@ export const nikkeSyncRuns = pgTable('nikke_sync_runs', {
     .defaultNow(),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
   status: text('status').notNull(), // "ok" | "partial" | "error"
+  // What triggered this run: "cron" | "startup" | "cli" | a /sync label with the
+  // server name + id (e.g. "command: Maiden (1523…) by user#0").
+  trigger: text('trigger'),
   // Per-source counts, errors, and the unmatched list for humans to review.
   sources: jsonb('sources'),
 });

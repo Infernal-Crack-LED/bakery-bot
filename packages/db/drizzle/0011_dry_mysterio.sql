@@ -1,0 +1,1 @@
+ALTER TABLE "nikke_sync_runs" ADD COLUMN "trigger" text;

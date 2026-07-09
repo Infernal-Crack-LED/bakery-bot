@@ -54,8 +54,12 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-/** Fetch everything, reconcile, persist, and record the run. */
-export async function runNikkeSync(): Promise<SyncSummary> {
+/**
+ * Fetch everything, reconcile, persist, and record the run. `trigger` labels what
+ * kicked off the run (e.g. "cron", "startup", or a /sync label with the server) —
+ * stored on the sync-run row for observability.
+ */
+export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
   const startedAt = new Date();
   const errors: string[] = [];
 
@@ -180,6 +184,7 @@ export async function runNikkeSync(): Promise<SyncSummary> {
     startedAt,
     finishedAt: new Date(),
     status,
+    trigger: trigger ?? null,
     sources: {
       counts: {
         characters: characters.length,

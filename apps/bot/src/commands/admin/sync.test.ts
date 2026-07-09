@@ -9,6 +9,9 @@ import { runNikkeSync } from '../../lib/nikke/sync.js';
 
 function fakeInteraction() {
   return {
+    guild: { name: 'Test Guild' },
+    guildId: 'guild-1',
+    user: { tag: 'admin#0' },
     deferReply: vi.fn().mockResolvedValue(undefined),
     editReply: vi.fn().mockResolvedValue(undefined),
   };
@@ -42,6 +45,10 @@ describe('/sync', () => {
     await command.execute(interaction as never);
 
     expect(runNikkeSync).toHaveBeenCalledOnce();
+    // The run is tagged with the server it was triggered from.
+    expect(runNikkeSync).toHaveBeenCalledWith(
+      expect.stringContaining('Test Guild (guild-1)')
+    );
     const reply = interaction.editReply.mock.calls[0]![0].content as string;
     expect(reply).toContain('191 characters');
     expect(reply).toContain('ok');

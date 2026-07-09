@@ -155,7 +155,7 @@ async function runStartupSyncIfStale(): Promise<void> {
       return;
     }
     console.log('[nikke] running startup sync');
-    const summary = await runNikkeSync();
+    const summary = await runNikkeSync('startup');
     console.log('[nikke] startup sync finished', summary);
   } catch (error) {
     console.error('[nikke] startup sync failed', error);
@@ -174,7 +174,7 @@ function scheduleNikkeSync(): void {
   }
   cron.schedule('0 4 * * *', () => {
     console.log('[nikke] starting scheduled sync');
-    runNikkeSync()
+    runNikkeSync('cron')
       .then((summary) => console.log('[nikke] sync finished', summary))
       .catch((error) => console.error('[nikke] sync failed', error));
   });

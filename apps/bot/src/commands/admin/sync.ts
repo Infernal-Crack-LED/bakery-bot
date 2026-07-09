@@ -28,8 +28,13 @@ export const command: Command = {
     }
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+    const where = interaction.guild
+      ? `${interaction.guild.name} (${interaction.guildId})`
+      : 'DM';
+    const trigger = `command: ${where} by ${interaction.user?.tag ?? 'unknown'}`;
+
     try {
-      const summary = await runNikkeSync();
+      const summary = await runNikkeSync(trigger);
       const u = summary.unmatched;
       const lines = [
         `✅ Sync **${summary.status}** — ${summary.characters} characters, ` +
