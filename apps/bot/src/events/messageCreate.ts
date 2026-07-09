@@ -147,7 +147,17 @@ export async function handleNewsMessage(message: Message): Promise<void> {
 
   await message
     .reply({ content, allowedMentions: { repliedUser: false } })
-    .catch(() => null);
+    .catch((error: { code?: number }) => {
+      // Fail-soft, but DON'T swallow silently: a missing "Send Messages"
+      // permission in the news channel (50013) otherwise looks like the whole
+      // feature is broken when the parse actually worked.
+      console.warn(
+        `[news] couldn't post a timestamp in channel ${message.channelId}` +
+          (error?.code === 50013
+            ? ' — grant the bot "Send Messages" there.'
+            : ` (${error?.code ?? 'error'})`)
+      );
+    });
 }
 
 export const event: Event<Events.MessageCreate> = {
