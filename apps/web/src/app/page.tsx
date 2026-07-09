@@ -8,6 +8,7 @@ interface Stats {
 
 interface SyncRunView {
   status: string;
+  trigger: string | null;
   finishedAt: string | null;
   characters: number;
   prydwenTiers: number;
@@ -74,6 +75,7 @@ async function getNikkeHealth(): Promise<NikkeHealth | null> {
       );
       lastRun = {
         status: run.status,
+        trigger: run.trigger ?? null,
         finishedAt: run.finishedAt ? run.finishedAt.toISOString() : null,
         characters: sources.counts?.characters ?? 0,
         prydwenTiers: sources.counts?.prydwenTiers ?? 0,
@@ -124,6 +126,9 @@ export default async function Home() {
               ? `Last sync: ${nikke.lastRun.status}` +
                 (nikke.lastRun.finishedAt
                   ? ` at ${new Date(nikke.lastRun.finishedAt).toLocaleString()}`
+                  : '') +
+                (nikke.lastRun.trigger
+                  ? ` (via ${nikke.lastRun.trigger})`
                   : '') +
                 ` — ${nikke.lastRun.characters} characters, ` +
                 `${nikke.lastRun.prydwenTiers} Prydwen tiers, ` +
