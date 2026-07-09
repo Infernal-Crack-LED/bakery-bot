@@ -12,6 +12,22 @@ import * as chrono from 'chrono-node';
 export type DiscordTimeStyle = 't' | 'T' | 'd' | 'D' | 'f' | 'F' | 'R';
 
 /**
+ * Fold full-width / CJK punctuation to the ASCII forms chrono understands.
+ *
+ * NIKKE's official notices are written with full-width characters — e.g.
+ * "17:00～19:30（UTC+9）" (full-width tilde U+FF5E + full-width parens). Left as-is
+ * those break parsing: the full-width tilde splits the range and strips the zone
+ * off the start time, and "（UTC+9）" isn't recognized as a timezone at all.
+ *
+ * NFKC normalization folds full-width tilde/parens/digits/colon/space to ASCII;
+ * we additionally map the wave-dash range separators (U+301C 〜, U+3030 〰) that
+ * NFKC leaves untouched. On plain ASCII text this is a no-op.
+ */
+export function normalizeDateText(text: string): string {
+  return text.normalize('NFKC').replace(/[〜〰]/g, '~');
+}
+
+/**
  * Parse a UTC offset string into minutes east of UTC.
  *
  * Accepts forms like: "+9", "-5", "+5:30", "0", "Z", "UTC", "UTC+2", "GMT-3",
@@ -61,7 +77,7 @@ export function parseToEpochSeconds(
   offsetMinutes: number,
   ref: Date = new Date()
 ): number | null {
-  const results = chrono.parse(input, ref);
+  const results = chrono.parse(normalizeDateText(input), ref);
   const first = results[0];
   if (!first) {
     return null;
@@ -180,7 +196,8 @@ export function extractEventTimestamps(
 
   // `strict` (not the default casual parser) so it only matches explicit dates
   // and ignores loose phrases like "now"/"today"/"tonight" that pepper tweets.
-  for (const result of chrono.strict.parse(text, ref)) {
+  // Normalize first so full-width notices (e.g. "17:00～19:30（UTC+9）") parse.
+  for (const result of chrono.strict.parse(normalizeDateText(text), ref)) {
     consider(result.start, result.text);
     consider(result.end, result.text);
   }
