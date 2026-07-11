@@ -46,7 +46,7 @@ together with the ingestion feature once that lands.
 
 ## 2. Announcement-parse core: hardened salvage + deterministic validation
 
-**Commit:** _(this update)_ — `apps/bot/src/lib/gacha/`
+**Commit:** `e1ea182` — `apps/bot/src/lib/gacha/`
 
 **What:** The pure, LLM-adjacent core of the announcement→event ingestion, with
 no I/O so every rule is unit-testable. Four new files:
@@ -102,7 +102,7 @@ until the ingestion edge lands.
 
 ## 3. Ingest orchestrator (LLM injected, no I/O)
 
-**Commit:** _(this update)_ — `apps/bot/src/lib/gacha/ingest.ts`
+**Commit:** `d5b74bf` — `apps/bot/src/lib/gacha/ingest.ts`
 
 **What:** The pipeline that ties prompt → salvage → validate together, with the
 LLM call **injected** (`LlmComplete = (prompt) => Promise<string>`) so nothing
@@ -139,7 +139,7 @@ forthcoming edge adapter + `/events` approve command.
 
 ## 4. Pity / pull calculator + `/pity` command
 
-**Commit:** _(this update)_ — `apps/bot/src/lib/gacha/pity.ts` +
+**Commit:** `017842f` — `apps/bot/src/lib/gacha/pity.ts` +
 `apps/bot/src/commands/utility/pity.ts` (F3 Feature 3)
 
 **What:** A pure pity/pull math lib and the user-facing slash command that uses
@@ -177,7 +177,7 @@ state, no dependency on updates 1–3. The clearest standalone win of the branch
 
 ## 5. LLM edge adapter + live smoke harness
 
-**Commit:** _(this update)_ — `apps/bot/src/lib/gacha/llmClient.ts` +
+**Commit:** `90e0f8d` — `apps/bot/src/lib/gacha/llmClient.ts` +
 `apps/bot/src/scripts/smoke-gacha-ingest.ts`
 
 **What:** The ONLY file in the gacha pipeline that talks to a model: a thin
@@ -225,7 +225,7 @@ adapter is only ever constructed on demand; nothing at import time.
 
 ## 6. Wire ingestion into the news flow (proposals only, gated OFF by default)
 
-**Commit:** _(this update)_ — `apps/bot/src/lib/gacha/news.ts` + a hook in
+**Commit:** `291fb0c` — `apps/bot/src/lib/gacha/news.ts` + a hook in
 `events/messageCreate.ts`
 
 **What:** Connects the (already-tested) pipeline to the existing NIKKE news
@@ -268,7 +268,7 @@ also merged — otherwise proposals accumulate with no way to review them.
 
 ## 7. `/events` operator-approve command (diff → approve/reject)
 
-**Commit:** _(this update)_ — `apps/bot/src/commands/admin/events.ts` +
+**Commit:** `1c8c954` — `apps/bot/src/commands/admin/events.ts` +
 `lib/gacha/{diff,store}.ts`
 
 **What:** The human-in-the-loop half of the ingestion feature — the ONLY path
@@ -318,7 +318,7 @@ update 8 — merge 8 with it, or expect that hint to dangle briefly.)
 
 ## 8. Banner calendar (`/calendar`) + opt-in reminders (F3 Feature 2)
 
-**Commit:** _(this update)_ — `lib/gacha/{calendar,reminders}.ts`,
+**Commit:** `c8dee9c` — `lib/gacha/{calendar,reminders}.ts`,
 `commands/utility/calendar.ts`, `/config reminders`, migration 0013
 
 **What:** The read side of the feature. Both consumers read **approved rows
