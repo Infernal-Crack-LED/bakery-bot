@@ -299,3 +299,140 @@ export const commandsOnlyGuilds = pgTable('commands_only_guilds', {
 });
 
 export type CommandsOnlyGuild = typeof commandsOnlyGuilds.$inferSelect;
+
+// ─── Gacha event calendar (LLM-ingested, operator-approved) ────────────────
+// Announcements in the watched news channels are parsed by a LOCAL LLM into
+// proposed events. Nothing lands in `gacha_events` until an admin reviews the
+// proposal diff and explicitly approves it (see apps/bot/src/lib/gacha +
+// /events). `event_ingest_runs` mirrors the `nikke_sync_runs` audit pattern.
+
+/** The valid gacha event categories a proposal may use. */
+export type GachaEventType = 'banner' | 'event' | 'maintenance';
+
+/**
+ * One proposed event as parsed + validated from an announcement. Stored on the
+ * ingest run (jsonb) until approved; on approval it is upserted into
+ * `gacha_events`. `flags` carries low-confidence markers for the approval view
+ * (e.g. "no-end", "midnight-start", "run-disagreement", "characters-scrubbed").
+ */
+export interface ProposedGachaEvent {
+  name: string;
+  type: GachaEventType;
+  /** ISO 8601 with offset (e.g. "2026-07-02T18:00:00+09:00"), or null. */
+  start: string | null;
+  end: string | null;
+  characters: string[];
+  notes: string;
+  flags: string[];
+}
+
+/** Diagnostics recorded on each ingest run — powers the approval view. */
+export interface IngestDiagnostics {
+  /** One entry per LLM pass (the pipeline double-runs the model). */
+  runs: Array<{
+    valid: boolean;
+    repaired: boolean;
+    salvage: string[];
+    events: number;
+    confidence: number | null;
+  }>;
+  /** Cross-run agreement: "agree" | "partial" | "single-run" | null (no runs). */
+  agreement: string | null;
+  errors: string[];
+  /** First few hundred chars of the source text, for the review view. */
+  sourceExcerpt?: string;
+}
+
+/**
+ * Approved calendar entries — the ONLY table the calendar/reminder features
+ * read. Rows are written exclusively by the /events approve flow (never by the
+ * LLM pipeline directly). One row per (guild, type, name) so re-approving an
+ * updated announcement upserts instead of duplicating.
+ */
+export const gachaEvents = pgTable(
+  'gacha_events',
+  {
+    id: serial('id').primaryKey(),
+    guildId: text('guild_id').notNull(),
+    name: text('name').notNull(),
+    type: text('type').notNull(), // GachaEventType
+    startsAt: timestamp('starts_at', { withTimezone: true }),
+    endsAt: timestamp('ends_at', { withTimezone: true }),
+    // Rate-up / featured character names (banners only; scrubbed elsewhere).
+    characters: jsonb('characters').$type<string[]>(),
+    notes: text('notes'),
+    // Low-confidence flags carried over from the approved proposal.
+    flags: jsonb('flags').$type<string[]>(),
+    // Provenance: which announcement + ingest run produced this row, and who
+    // approved it (Discord user id — snowflake, so text).
+    sourceMessageId: text('source_message_id'),
+    sourceChannelId: text('source_channel_id'),
+    ingestRunId: integer('ingest_run_id'),
+    approvedBy: text('approved_by'),
+    // Reminder bookkeeping: set when the start/end reminder has been posted,
+    // so a reminder is never sent twice.
+    startReminderSentAt: timestamp('start_reminder_sent_at', {
+      withTimezone: true,
+    }),
+    endReminderSentAt: timestamp('end_reminder_sent_at', {
+      withTimezone: true,
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    guildStartIdx: index('gacha_events_guild_start_idx').on(
+      table.guildId,
+      table.startsAt
+    ),
+    // Idempotent approval: re-approving the same event updates it in place.
+    guildTypeNameUnique: uniqueIndex('gacha_events_guild_type_name_unique').on(
+      table.guildId,
+      table.type,
+      table.name
+    ),
+  })
+);
+
+export type GachaEvent = typeof gachaEvents.$inferSelect;
+export type NewGachaEvent = typeof gachaEvents.$inferInsert;
+
+/**
+ * Audit log of announcement-ingest runs (mirrors `nikke_sync_runs`). A run is
+ * created with status "proposed" (or "error") by the parse pipeline; an admin
+ * decision moves it to "approved" / "rejected" and stamps who/when.
+ */
+export const eventIngestRuns = pgTable(
+  'event_ingest_runs',
+  {
+    id: serial('id').primaryKey(),
+    guildId: text('guild_id').notNull(),
+    sourceMessageId: text('source_message_id'),
+    sourceChannelId: text('source_channel_id'),
+    startedAt: timestamp('started_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    status: text('status').notNull(), // "proposed" | "approved" | "rejected" | "error"
+    // What triggered the run: "news" (auto from a watched channel) or a
+    // command label like "command: Maiden (152…) by user#0".
+    trigger: text('trigger'),
+    proposal: jsonb('proposal').$type<ProposedGachaEvent[]>(),
+    diagnostics: jsonb('diagnostics').$type<IngestDiagnostics>(),
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+  },
+  (table) => ({
+    guildIdx: index('event_ingest_runs_guild_idx').on(table.guildId),
+    messageIdx: index('event_ingest_runs_message_idx').on(
+      table.sourceMessageId
+    ),
+  })
+);
+
+export type EventIngestRun = typeof eventIngestRuns.$inferSelect;
+export type NewEventIngestRun = typeof eventIngestRuns.$inferInsert;
