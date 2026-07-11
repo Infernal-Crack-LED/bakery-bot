@@ -3,6 +3,8 @@ export const dynamic = 'force-dynamic';
 
 interface Stats {
   guilds: number;
+  users: number;
+  commandsOnly: number;
   modActions: number;
 }
 
@@ -29,12 +31,27 @@ async function getStats(): Promise<Stats | null> {
     return null;
   }
   try {
-    const { db, guildConfig, modActions } = await import('@app/db');
-    const [guilds, actions] = await Promise.all([
-      db.$count(guildConfig),
+    const { db, guilds, commandsOnlyGuilds, modActions } =
+      await import('@app/db');
+    const { isNull, sum } = await import('drizzle-orm');
+    // "Servers" = servers Maiden is actually a member of (leftAt still null),
+    // NOT rows in guild_config (which only exist once someone runs /config).
+    // "Users" = sum of memberCount across those servers (captured on join/reconcile).
+    // "Commands-only" = guilds that authorized slash commands without adding the
+    // bot as a member — see lib/deadInstall.ts. Together these reconcile against
+    // Discord's dev-portal server count (which also counts commands-only + stale).
+    const [memberGuilds, userSum, commandsOnly, actions] = await Promise.all([
+      db.$count(guilds, isNull(guilds.leftAt)),
+      db
+        .select({ total: sum(guilds.memberCount) })
+        .from(guilds)
+        .where(isNull(guilds.leftAt)),
+      db.$count(commandsOnlyGuilds),
       db.$count(modActions),
     ]);
-    return { guilds, modActions: actions };
+    // sum() returns a numeric string (or null when no rows) — coerce to number.
+    const users = Number(userSum[0]?.total ?? 0);
+    return { guilds: memberGuilds, users, commandsOnly, modActions: actions };
   } catch (error) {
     console.error('[dashboard] failed to load stats', error);
     return null;
@@ -102,6 +119,8 @@ export default async function Home() {
       {stats ? (
         <div className="grid">
           <Stat label="Servers" value={stats.guilds} />
+          <Stat label="Users" value={stats.users} />
+          <Stat label="Commands-only" value={stats.commandsOnly} />
           <Stat label="Mod actions" value={stats.modActions} />
         </div>
       ) : (
