@@ -220,3 +220,46 @@ calling an OpenAI-compatible `/chat/completions` endpoint.
 **Merge recommendation:** Merge together with updates 1–3 as the ingestion
 core. Zero risk while `GACHA_INGEST_ENABLED` stays unset (next update) — the
 adapter is only ever constructed on demand; nothing at import time.
+
+---
+
+## 6. Wire ingestion into the news flow (proposals only, gated OFF by default)
+
+**Commit:** _(this update)_ — `apps/bot/src/lib/gacha/news.ts` + a hook in
+`events/messageCreate.ts`
+
+**What:** Connects the (already-tested) pipeline to the existing NIKKE news
+watcher. When the auto-timestamp finds an event time in a watched news post,
+`proposeEventsFromNews()` runs the LLM parse over the same text and stores the
+outcome as an `event_ingest_runs` row — status `"proposed"` (or `"error"` when
+nothing usable came back, so failures are visible in the audit trail), trigger
+`"news"`, mirroring `nikke_sync_runs`.
+
+Safety properties (all tested):
+
+- **Never writes `gacha_events`** (F2 req 1) — proposals only; the calendar
+  changes exclusively via `/events approve` (next update).
+- **OFF by default:** runs only when `GACHA_INGEST_ENABLED` is set, and only
+  with a database configured. A Railway deploy without a local LLM never
+  spends a call or logs an error.
+- **Cheap pre-filter:** the deterministic date hit that triggers the timestamp
+  reply doubles as the ingestion trigger — random tweets never reach the LLM.
+- **Deduped twice:** an in-memory set marks a message BEFORE the slow parse
+  (kills the TweetShift create+update race), and a DB check on
+  `sourceMessageId` survives restarts.
+- **Fire-and-forget:** the parse can take minutes; it never delays the
+  timestamp reply and failures are caught + logged.
+
+**How tested:** 7 new tests in `news.test.ts` (mocked `@app/db`, injected fake
+completer): gate off ⇒ nothing, no DB ⇒ nothing, proposed row stored with
+double-run diagnostics + never any other table, error row on unusable model
+output, concurrent-duplicate race ⇒ one insert, existing-row dedupe. Plus 2
+new tests in `messageCreate.test.ts` (mocked ingestion): a stamped post is
+handed over with the right ids/text; a dateless post never triggers it.
+`npm run typecheck` clean; `npm test` green (**233 tests**).
+
+**Merge recommendation:** Merge together with updates 1–3 + 5 (it's the last
+piece of the proposal side). Risk is minimal because the feature is opt-in via
+env; without `GACHA_INGEST_ENABLED` the new code path is two early returns.
+Do NOT set `GACHA_INGEST_ENABLED` in production until update 7 (`/events`) is
+also merged — otherwise proposals accumulate with no way to review them.

@@ -7,6 +7,7 @@ import {
   configuredNewsChannelIds,
   getGuildConfig,
 } from '../lib/guildConfig.js';
+import { proposeEventsFromNews } from '../lib/gacha/news.js';
 import type { Event } from '../types.js';
 
 /**
@@ -134,6 +135,18 @@ export async function handleNewsMessage(message: Message): Promise<void> {
   }
 
   rememberStamped(message.id);
+
+  // Gacha event ingestion (off unless GACHA_INGEST_ENABLED): the deterministic
+  // date hit above doubles as the trigger that this post is schedule-bearing,
+  // so random tweets never reach the LLM. Fire-and-forget — the (slow) parse
+  // must never delay the timestamp reply, and it only ever STORES a proposal
+  // for /events review; it never touches the calendar.
+  void proposeEventsFromNews({
+    guildId: message.guildId,
+    channelId: message.channelId,
+    messageId: message.id,
+    text,
+  }).catch((error) => console.error('[gacha] news ingest failed', error));
 
   const content = stamps
     .map(
