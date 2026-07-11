@@ -97,3 +97,40 @@ dependence.
 orchestrator + admin command wire it up. Merge with update 1 and the
 forthcoming ingestion update as one reviewable feature, or hold the whole set
 until the ingestion edge lands.
+
+---
+
+## 3. Ingest orchestrator (LLM injected, no I/O)
+
+**Commit:** _(this update)_ — `apps/bot/src/lib/gacha/ingest.ts`
+
+**What:** The pipeline that ties prompt → salvage → validate together, with the
+LLM call **injected** (`LlmComplete = (prompt) => Promise<string>`) so nothing
+here does I/O. Exports:
+
+- `runOnce()` — one parse pass: prompt the model, salvage the reply, and on an
+  unrecoverable reply **re-prompt once** for clean JSON (F2 req 3), then
+  validate. Never throws on a bad reply or a completer failure — both surface as
+  a `run.error` string with an empty, invalid run.
+- `ingestAnnouncement()` — **double-runs** the parse (F2 req 7), assembles
+  `IngestDiagnostics` (per-run valid/repaired/salvage/events/confidence + an
+  `agree`/`partial`/`single-run` agreement label + collected errors +
+  source excerpt), and returns the best proposal (most events, ties broken by
+  confidence). Writes nothing — the caller records it on an `event_ingest_runs`
+  row for review.
+- `MIN_MAX_TOKENS = 16000` — exported constant the real edge adapter must
+  request (F2 req 2); kept here as the single source of truth.
+- `ingest.test.ts` — 7 tests with a fake completer: clean parse, repair-on-
+  broken, unsalvageable, completer throw, double-run agree/partial, and
+  best-proposal-with-errors.
+
+**Why:** Injecting the LLM keeps the risky orchestration (retries, double-run,
+diagnostics) deterministic and fully unit-tested. The only thing left for the
+edge is a thin adapter (endpoint + `max_tokens`) and the DB/Discord wiring.
+
+**How tested:** `npm run typecheck` clean; `npm test` green (35 gacha tests,
+full suite unaffected). No network/model/DB used in tests.
+
+**Merge recommendation:** Self-contained and inert (nothing calls it yet). Merge
+as part of the ingestion feature set together with updates 1–2 and the
+forthcoming edge adapter + `/events` approve command.
