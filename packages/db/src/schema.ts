@@ -30,6 +30,10 @@ export const guildConfig = pgTable('guild_config', {
   // The emoji is stored as the admin typed it (e.g. "⭐" or "<:MaidenCopium:123>").
   quoteEmoji: text('quote_emoji'),
   quoteThreshold: integer('quote_threshold'),
+  // Channel where approved gacha-event reminders are posted (see
+  // apps/bot/src/lib/gacha/reminders.ts). Unset ⇒ reminders are off for this
+  // guild — the reminder sweep is strictly opt-in per server.
+  reminderChannelId: text('reminder_channel_id'),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),

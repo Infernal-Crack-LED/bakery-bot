@@ -1,0 +1,1 @@
+ALTER TABLE "guild_config" ADD COLUMN "reminder_channel_id" text;

@@ -14,10 +14,11 @@ import {
   db,
   eventIngestRuns,
   gachaEvents,
+  guildConfig,
   type EventIngestRun,
   type GachaEvent,
 } from '@app/db';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { proposedDate } from './diff.js';
 
 /** The most recent runs awaiting a decision for this guild. */
@@ -111,4 +112,38 @@ export async function applyProposal(
       });
   }
   return proposal.length;
+}
+
+/** A guild that opted into reminders via /config reminders. */
+export interface ReminderTarget {
+  guildId: string;
+  reminderChannelId: string;
+}
+
+/** All guilds with a reminder channel configured (reminders are opt-in). */
+export async function listReminderConfigs(): Promise<ReminderTarget[]> {
+  const rows = await db.query.guildConfig.findMany({
+    where: isNotNull(guildConfig.reminderChannelId),
+  });
+  return rows
+    .filter((r) => r.reminderChannelId)
+    .map((r) => ({
+      guildId: r.guildId,
+      reminderChannelId: r.reminderChannelId!,
+    }));
+}
+
+/** Stamp a reminder as sent so it can never fire twice. */
+export async function markReminderSent(
+  eventId: number,
+  kind: 'start' | 'end'
+): Promise<void> {
+  await db
+    .update(gachaEvents)
+    .set(
+      kind === 'start'
+        ? { startReminderSentAt: new Date() }
+        : { endReminderSentAt: new Date() }
+    )
+    .where(eq(gachaEvents.id, eventId));
 }

@@ -83,6 +83,25 @@ export const command: Command = {
         )
     )
     .addSubcommand((sub) =>
+      sub
+        .setName('reminders')
+        .setDescription(
+          'Set (or clear) the channel where gacha event reminders are posted.'
+        )
+        .addChannelOption((o) =>
+          o
+            .setName('channel')
+            .setDescription('Target text channel')
+            .addChannelTypes(
+              ChannelType.GuildText,
+              ChannelType.GuildAnnouncement
+            )
+        )
+        .addBooleanOption((o) =>
+          o.setName('off').setDescription('Turn reminders off for this server')
+        )
+    )
+    .addSubcommand((sub) =>
       sub.setName('show').setDescription('Show the current configuration.')
     ),
   execute: async (interaction) => {
@@ -105,6 +124,7 @@ export const command: Command = {
           `**Mod-log channel:** ${cfg?.modLogChannelId ? `<#${cfg.modLogChannelId}>` : 'not set'}`,
           `**Welcome channel:** ${cfg?.welcomeChannelId ? `<#${cfg.welcomeChannelId}>` : 'not set'}`,
           `**News channels:** ${news.length ? news.map((id) => `<#${id}>`).join(', ') : 'not set'}`,
+          `**Reminder channel:** ${cfg?.reminderChannelId ? `<#${cfg.reminderChannelId}>` : 'not set (reminders off)'}`,
           `**Quote emoji:** ${cfg?.quoteEmoji ?? 'not set'}${cfg?.quoteEmoji ? ` (saves at ${quoteThreshold(cfg)} reactions)` : ''}`,
         ].join('\n'),
         flags: MessageFlags.Ephemeral,
@@ -147,6 +167,36 @@ export const command: Command = {
       const cfg = await getGuildConfig(guildId);
       await interaction.reply({
         content: `✅ Quote-saver updated. React with ${cfg?.quoteEmoji} — a message is saved at **${quoteThreshold(cfg)}** reactions. View a member's quotes with \`/quotes\`.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === 'reminders') {
+      const off = interaction.options.getBoolean('off') ?? false;
+      if (off) {
+        await setGuildConfig(guildId, { reminderChannelId: null });
+        await interaction.reply({
+          content: '✅ Gacha event reminders are now **off** for this server.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      const target = interaction.options.getChannel('channel');
+      if (!target) {
+        await interaction.reply({
+          content:
+            'Pick a channel (`/config reminders channel:#events`) or turn ' +
+            'reminders off (`/config reminders off:True`).',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      await setGuildConfig(guildId, { reminderChannelId: target.id });
+      await interaction.reply({
+        content:
+          `✅ Approved-event reminders will be posted in <#${target.id}> ` +
+          '(about an hour before an event starts or ends).',
         flags: MessageFlags.Ephemeral,
       });
       return;

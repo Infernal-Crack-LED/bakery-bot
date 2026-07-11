@@ -313,3 +313,50 @@ the piece that makes the ingestion feature reviewable, and the only writer of
 `gacha_events`. After merging, run `npm run bot:deploy-commands` to register
 the new command. (Its approve reply mentions `/calendar`, which lands in
 update 8 — merge 8 with it, or expect that hint to dangle briefly.)
+
+---
+
+## 8. Banner calendar (`/calendar`) + opt-in reminders (F3 Feature 2)
+
+**Commit:** _(this update)_ — `lib/gacha/{calendar,reminders}.ts`,
+`commands/utility/calendar.ts`, `/config reminders`, migration 0013
+
+**What:** The read side of the feature. Both consumers read **approved rows
+only** (`gacha_events` — written exclusively by `/events approve`).
+
+- `calendar.ts` (pure) — `bucketEvents()` splits rows into 🔴 live (sorted by
+  soonest end) and 🗓️ upcoming (sorted by start), dropping ended/unscheduled
+  rows; `renderCalendar()` renders with `<t:…>` stamps (every member sees
+  their local time — same principle as `discordTime.ts`) and caps each
+  section so the reply fits one message. `/calendar` (utility, public,
+  read-only) serves it.
+- `reminders.ts` — `dueReminders()` is PURE (no clock/I/O): a boundary is due
+  when inside a 1 h lead window, not already stamped sent, and not older than
+  a 6 h grace (no catch-up spam after downtime). `runReminderSweep()` posts
+  due reminders to the guild's configured channel and stamps
+  `start/end_reminder_sent_at` **only after the send succeeds** (failed send
+  ⇒ retried next sweep; stamp ⇒ never fires twice). Scheduled from the
+  existing node-cron in `index.ts` (`*/10 * * * *`, same scheduler as the
+  NIKKE sync — no second scheduling mechanism), skipped without a database.
+- **Config-gated sends:** reminders are strictly opt-in per guild — schema
+  adds `guild_config.reminder_channel_id` (migration 0013, snowflake as
+  `text`), set/cleared via `/config reminders channel:#x` / `off:True`, shown
+  in `/config show`. No channel ⇒ the sweep never touches that guild.
+
+**How tested:** 16 new tests — calendar bucketing/sorting/empty/cap rendering
+(pure, fixed `now`), `dueReminders` window/sent-stamp/stale cases (pure), and
+sweep tests via the repo's fake pattern (mocked store + a fake
+`client.channels.fetch`, **no live Discord anywhere**): config-gated (no
+opted-in guilds ⇒ zero calls), sends+marks, failed send ⇒ NOT marked, missing
+channel ⇒ skipped, nothing due ⇒ no fetch. `npm run typecheck` clean;
+`npm test` green (**266 tests**, loader safety-net auto-covers `/calendar` +
+the new `/config` subcommand). Migrations 0000–0013 applied cleanly to a
+fresh local Postgres (`bakery_bot`) — `reminder_channel_id` and the gacha
+tables verified present.
+
+**Merge recommendation:** Merge together with the ingestion set (1–3, 5–7);
+it depends on their schema + approve flow. Includes a migration
+(auto-applied by `npm run release` on deploy) and new slash-command shapes —
+run `npm run bot:deploy-commands` after merging. Reminders stay silent until
+a server explicitly runs `/config reminders`, so the rollout is zero-noise by
+default.
