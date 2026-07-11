@@ -263,3 +263,53 @@ piece of the proposal side). Risk is minimal because the feature is opt-in via
 env; without `GACHA_INGEST_ENABLED` the new code path is two early returns.
 Do NOT set `GACHA_INGEST_ENABLED` in production until update 7 (`/events`) is
 also merged — otherwise proposals accumulate with no way to review them.
+
+---
+
+## 7. `/events` operator-approve command (diff → approve/reject)
+
+**Commit:** _(this update)_ — `apps/bot/src/commands/admin/events.ts` +
+`lib/gacha/{diff,store}.ts`
+
+**What:** The human-in-the-loop half of the ingestion feature — the ONLY path
+that writes the calendar (F2 req 1).
+
+- `diff.ts` (pure) — `diffProposal()` compares a stored proposal against the
+  guild's current `gacha_events` rows, keyed on case-folded (type, name):
+  each proposed event becomes 🆕 new / 🔁 changed (with field-level
+  `old → new` lines) / ⏸ unchanged. `renderProposalDiff()` renders that as
+  Discord markdown with the double-run agreement label (⚠️ on `partial` —
+  F2 req 7), per-run errors, and every low-confidence flag next to its event
+  (F2 req 5). Times render as `<t:…>` timestamps (each reviewer sees local
+  time); output truncates to fit one Discord message.
+- `store.ts` — the only DB touchpoint for the flow, kept separate so command
+  tests mock one module: `listPendingRuns` / `getRun` (guild-scoped, ids
+  can't cross servers) / `listGuildEvents` / `decideRun` (stamps
+  status+decidedBy+decidedAt on the audit row — the `nikkeSyncRuns` pattern) /
+  `applyProposal` (the ONE `gacha_events` write path: upsert on
+  (guild, type, name), carries provenance + approver, and RESETS
+  reminder-sent stamps so re-approved times re-arm reminders).
+- `/events` — admin-gated like `/sync` (`ManageGuild` default perms +
+  `ensureAdmin` in code), ephemeral replies, subcommands per the repo's
+  `/config` convention: `pending` (list + source jump links), `show run:<id>`
+  (the diff), `approve run:<id>`, `reject run:<id>`. Only an undecided
+  (`proposed`) run can be decided; approve/reject on a decided run refuses.
+
+**Why subcommands, not buttons:** the repo has no message-component
+infrastructure (interactionCreate handles only slash commands + autocomplete);
+`show → approve` via explicit ids follows the existing command conventions and
+keeps the interaction surface auditable.
+
+**How tested:** 10 diff tests (pure: instant conversion, new/changed/
+unchanged, case-insensitive matching, type-mismatch ⇒ new, flag/agreement/
+truncation rendering) + 7 command tests (mocked admin + store: non-admin
+blocked before any store call, pending list, show writes NOTHING, approve
+applies + stamps, reject stamps + never applies, already-decided refused,
+unknown id). `npm run typecheck` clean; `npm test` green (**250 tests**, incl.
+the loader safety-net auto-covering `/events`).
+
+**Merge recommendation:** Merge as one unit with updates 1–3 + 5–6 — this is
+the piece that makes the ingestion feature reviewable, and the only writer of
+`gacha_events`. After merging, run `npm run bot:deploy-commands` to register
+the new command. (Its approve reply mentions `/calendar`, which lands in
+update 8 — merge 8 with it, or expect that hint to dangle briefly.)
