@@ -15,6 +15,7 @@
     "deploy-commands": "tsx src/deploy-commands.ts",
     "clear-guild-commands": "tsx src/clear-guild-commands.ts",
     "sync:nikke": "tsx src/scripts/sync-nikke.ts",
+    "smoke:gacha": "tsx src/scripts/smoke-gacha-ingest.ts",
     "sync:emojis": "tsx src/scripts/sync-emojis.ts",
     "sync:install": "tsx src/scripts/sync-install.ts",
     "refresh:prydwen": "tsx src/scripts/refresh-prydwen.ts",
