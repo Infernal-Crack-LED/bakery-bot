@@ -134,3 +134,41 @@ full suite unaffected). No network/model/DB used in tests.
 **Merge recommendation:** Self-contained and inert (nothing calls it yet). Merge
 as part of the ingestion feature set together with updates 1–2 and the
 forthcoming edge adapter + `/events` approve command.
+
+---
+
+## 4. Pity / pull calculator + `/pity` command
+
+**Commit:** _(this update)_ — `apps/bot/src/lib/gacha/pity.ts` +
+`apps/bot/src/commands/utility/pity.ts` (F3 Feature 3)
+
+**What:** A pure pity/pull math lib and the user-facing slash command that uses
+it. Independent of the LLM/ingestion work — no DB, no model.
+
+- `pity.ts` — `probAtLeastOne` (1-(1-p)^n), `expectedCount` (n·p),
+  `pullsForConfidence` (pulls to reach a % confidence in an SSR),
+  `pullsToMileage` (pulls to the hard-pity ceiling), and `summarizePulls`
+  (expected SSRs, chance of ≥1 SSR, mileage/pity progress). NIKKE defaults
+  (`NIKKE_SSR_RATE=0.04`, `NIKKE_MILEAGE_TARGET=200`) are exported constants and
+  every one is overridable.
+- `commands/utility/pity.ts` — `/pity pulls:<n> [mileage:<0-200>]` replies with
+  the summary (expected SSRs, ≥1-SSR odds, mileage-to-pity, and pulls needed for
+  90% confidence). Mirrors the existing `/time` command shape.
+- `pity.test.ts` — 13 tests against closed-form values (no randomness/clock).
+
+**Deliberate scope note:** the lib models only the two mechanics that are exact
+and well-documented — the per-pull SSR rate and the Gold Mileage hard-pity
+ceiling. It intentionally does **not** hardcode gem/voucher costs (those vary by
+shop/event and would be guesswork); a currency→pulls conversion can be added
+later once the operator confirms the numbers.
+
+**Why:** A self-contained, fully-tested, zero-integration-risk feature — a good
+fit to land unattended. Gives players quick odds without touching the risky
+LLM/DB edge.
+
+**How tested:** `npm run typecheck` + `npm run lint` clean; `npm test` green
+(215 tests: 13 new pity tests + the loader safety-net auto-covering the new
+`/pity` command for name/uniqueness/serialization).
+
+**Merge recommendation:** Safe to merge independently — no schema, no shared
+state, no dependency on updates 1–3. The clearest standalone win of the branch.
