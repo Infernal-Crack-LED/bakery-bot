@@ -1,0 +1,1 @@
+ALTER TABLE "nikke_characters" ADD COLUMN "base_stats" jsonb;

@@ -32,6 +32,21 @@ export const SHEET_NAME_OVERRIDES: Record<string, string> = {
  *  - Collab units — Synergy uses a short name, Prydwen the full name
  *    (e.g. misato → misato-katsuragi, ada → ada-wong).
  */
+/**
+ * blablalink resource_id overrides: our canonical id → blablalink `resource_id`,
+ * for characters the base-stats sync can't match by name. blablalink names some
+ * collab units with only a first name (e.g. "Rei", "Sakura") that collides with
+ * an unrelated NIKKE, so name matching is ambiguous — pin them by id here.
+ * (Confirmed via each candidate's roledata description; see blablalink.ts.)
+ *
+ *   key   = canonical character id (slug)
+ *   value = blablalink resource_id (the `nikke=<id>` slider param)
+ */
+export const BLABLALINK_RESOURCE_OVERRIDES: Record<string, number> = {
+  'rei-ayanami': 831, // blablalink "Rei" (EVA Unit Zero pilot)
+  'sakura-suzuhara': 836, // blablalink "Sakura" (WILLE medical officer)
+};
+
 export const PRYDWEN_SLUG_OVERRIDES: Record<string, string> = {
   // Alt/skin units: reversed word order on Prydwen.
   'anis-sparkling-summer': 'sparkling-summer-anis',

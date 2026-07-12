@@ -11,14 +11,25 @@
  */
 
 import {
+  botMeta,
   db,
   nikkeCharacters,
   nikkeNameDictionary,
   nikkeSyncRuns,
+  NIKKE_LEVEL_MULTIPLIER_KEY,
 } from '@app/db';
-import { sql } from 'drizzle-orm';
-import { buildCharacters } from './match.js';
-import { PRYDWEN_SLUG_OVERRIDES } from './overrides.js';
+import { eq, isNull, sql } from 'drizzle-orm';
+import {
+  deriveLevelMultiplier,
+  fetchBlablalinkRoster,
+  fetchRoleData,
+  parseBaseStats,
+} from './blablalink.js';
+import { buildCharacters, normalizeName } from './match.js';
+import {
+  BLABLALINK_RESOURCE_OVERRIDES,
+  PRYDWEN_SLUG_OVERRIDES,
+} from './overrides.js';
 import { PRYDWEN_TIERS } from './prydwen-data.js';
 import { prydwenUrl, resolvePrydwenSlug } from './prydwen.js';
 import {
@@ -42,8 +53,89 @@ export interface SyncSummary {
   characters: number;
   dictionaryEntries: number;
   prydwenTiers: number;
+  /** How many characters got their one-time base-stats fetch this run. */
+  baseStatsFetched: number;
   errors: string[];
   unmatched: { untranslated: number; arenaStats: number; sheet: number };
+}
+
+interface BaseStatsResult {
+  fetched: number;
+  unmatched: string[];
+  errors: string[];
+}
+
+/**
+ * One-time base-stats backfill. Base stats never change for a released unit, so
+ * we only touch blablalink for characters that don't have them yet: if none are
+ * missing this is a no-op (zero network calls). Otherwise we pull the roster
+ * once, match each missing character to its resource_id by normalized name, and
+ * fetch + store that character's stats. The shared synchro-level multiplier is
+ * written to `bot_meta` the first time we fetch any character.
+ */
+async function syncBaseStats(): Promise<BaseStatsResult> {
+  const missing = await db
+    .select({ id: nikkeCharacters.id, name: nikkeCharacters.name })
+    .from(nikkeCharacters)
+    .where(isNull(nikkeCharacters.baseStats));
+  if (missing.length === 0) {
+    return { fetched: 0, unmatched: [], errors: [] };
+  }
+
+  const roster = await fetchBlablalinkRoster();
+  const resourceIdByName = new Map<string, number>();
+  for (const entry of roster) {
+    const key = normalizeName(entry.name);
+    if (!resourceIdByName.has(key)) {
+      resourceIdByName.set(key, entry.resourceId);
+    }
+  }
+
+  const existingMultiplier = await db
+    .select({ key: botMeta.key })
+    .from(botMeta)
+    .where(eq(botMeta.key, NIKKE_LEVEL_MULTIPLIER_KEY))
+    .limit(1);
+  let multiplierWritten = existingMultiplier.length > 0;
+
+  const unmatched: string[] = [];
+  const errors: string[] = [];
+  let fetched = 0;
+
+  for (const character of missing) {
+    // A manual id→resource_id pin wins over name matching (collab units whose
+    // blablalink name is ambiguous); otherwise match by normalized name.
+    const resourceId =
+      BLABLALINK_RESOURCE_OVERRIDES[character.id] ??
+      resourceIdByName.get(normalizeName(character.name));
+    if (resourceId == null) {
+      unmatched.push(character.name);
+      continue;
+    }
+    try {
+      const role = await fetchRoleData(resourceId);
+      await db
+        .update(nikkeCharacters)
+        .set({ baseStats: parseBaseStats(role), updatedAt: sql`now()` })
+        .where(eq(nikkeCharacters.id, character.id));
+      fetched += 1;
+
+      if (!multiplierWritten) {
+        await db
+          .insert(botMeta)
+          .values({
+            key: NIKKE_LEVEL_MULTIPLIER_KEY,
+            value: JSON.stringify(deriveLevelMultiplier(role)),
+          })
+          .onConflictDoNothing();
+        multiplierWritten = true;
+      }
+    } catch (error) {
+      errors.push(`base-stats ${character.name}: ${(error as Error).message}`);
+    }
+  }
+
+  return { fetched, unmatched, errors };
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -174,6 +266,19 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
       });
   }
 
+  // One-time base-stats backfill (blablalink). Runs AFTER the upsert so brand-new
+  // characters already have rows to fill. A failure here degrades to "partial".
+  const baseStats = await guarded<BaseStatsResult>(
+    'base-stats',
+    syncBaseStats,
+    {
+      fetched: 0,
+      unmatched: [],
+      errors: [],
+    }
+  );
+  errors.push(...baseStats.errors);
+
   const status: SyncSummary['status'] = errors.length
     ? characters.length
       ? 'partial'
@@ -192,8 +297,9 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
         arenaStats: arenaStats.length,
         sheetRows: sheetPriority.length,
         prydwenTiers: prydwenMatched,
+        baseStatsFetched: baseStats.fetched,
       },
-      unmatched,
+      unmatched: { ...unmatched, baseStats: baseStats.unmatched },
       errors,
     },
   });
@@ -203,6 +309,7 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
     characters: characters.length,
     dictionaryEntries: dictRows.length,
     prydwenTiers: prydwenMatched,
+    baseStatsFetched: baseStats.fetched,
     errors,
     unmatched: {
       untranslated: unmatched.untranslated.length,
