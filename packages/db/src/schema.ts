@@ -127,9 +127,10 @@ export type Quote = typeof quotes.$inferSelect;
 export type NewQuote = typeof quotes.$inferInsert;
 
 // ─── NIKKE character data ───────────────────────────────────────────────────
-// Aggregated from Tsareena's sheet + Prydwen + Nikke Synergy by the daily sync
-// (see apps/bot/src/lib/nikke). These are game data, not Discord snowflakes, so
-// normal column types are fine. The /nikke command reads ONLY these tables.
+// Aggregated from Tsareena's sheet + Prydwen + Nikke Synergy by the daily sync,
+// plus one-time base stats from blablalink (see apps/bot/src/lib/nikke). These
+// are game data, not Discord snowflakes, so normal column types are fine. The
+// /nikke command reads ONLY these tables.
 
 /** Structured tiers scraped from Prydwen's `.detailed-ratings.nikke`. */
 export interface PrydwenTiers {
@@ -190,6 +191,37 @@ export interface CharacterAttributes {
   burstSkillEn?: string; // includes a "Cooldown: <n> s" first line
 }
 
+/**
+ * Intrinsic base stats + dupe/level scaling, sourced ONCE per character from
+ * blablalink's ShiftyPad game data (see apps/bot/src/lib/nikke/blablalink.ts).
+ * These never change for a released unit, so the sync fetches them only for
+ * characters that don't have them yet — see runNikkeSync.
+ *
+ * Level scaling isn't stored per-character (the synchro curve is shared across
+ * the roster up to sub-0.01% rounding); the one shared multiplier lives in
+ * `bot_meta` under NIKKE_LEVEL_MULTIPLIER_KEY. A consumer reconstructs a stat at
+ * synchro level L (1-indexed), with `g` Limit Breaks and `c` Core levels, as:
+ *   base = floor(atk * mult.attack[L-1] * (1 + g*grade.ratio/1e4) + g*grade.atk)
+ *   stat = round(base * (1 + c*core.atk/1e4))
+ * (the level-1 values below are `mult[0] === 1`). HP/DEF are analogous.
+ */
+export interface BaseStats {
+  /** blablalink resource_id — the `nikke=<id>` slider param; the re-fetch key. */
+  resourceId: number;
+  // Level-1 base stats (before any Limit Break / Core / gear).
+  atk: number;
+  hp: number;
+  def: number;
+  critRate: number; // percent, e.g. 15
+  critDamage: number; // percent, e.g. 150
+  /** Highest synchro level present in the shared level curve (e.g. 1200). */
+  maxLevel: number;
+  /** Per-Limit-Break increment. `ratio` is basis points (200 = +2% per LB). */
+  grade: { ratio: number; atk: number; hp: number; def: number };
+  /** Per-Core-level increment, in basis points of the stat (200 = +2% / core). */
+  core: { atk: number; hp: number; def: number };
+}
+
 /** Canonical character registry — one row per NIKKE, keyed by a stable slug. */
 export const nikkeCharacters = pgTable('nikke_characters', {
   id: text('id').primaryKey(), // canonical slug, e.g. "anis-star"
@@ -215,6 +247,9 @@ export const nikkeCharacters = pgTable('nikke_characters', {
   synergyStats: jsonb('synergy_stats').$type<SynergyStats>(),
   attributes: jsonb('attributes').$type<CharacterAttributes>(),
   sheetData: jsonb('sheet_data').$type<SheetData>(),
+  // Intrinsic base stats + dupe scaling from blablalink; fetched once (null until
+  // the sync first matches this character to its blablalink resource_id).
+  baseStats: jsonb('base_stats').$type<BaseStats>(),
   updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -267,6 +302,21 @@ export const botMeta = pgTable('bot_meta', {
 });
 
 export type BotMeta = typeof botMeta.$inferSelect;
+
+/**
+ * `bot_meta` key holding the shared synchro-level stat multiplier, written once
+ * by the NIKKE sync (see blablalink.ts). Value is JSON:
+ *   { attack: number[]; hp: number[]; def: number[] }  // ratio to level 1, index = level-1
+ * Combined with a character's `baseStats` to reconstruct stats at any level.
+ */
+export const NIKKE_LEVEL_MULTIPLIER_KEY = 'nikke_level_multiplier';
+
+/** Shape stored (JSON-encoded) in the NIKKE_LEVEL_MULTIPLIER_KEY bot_meta row. */
+export interface NikkeLevelMultiplier {
+  attack: number[];
+  hp: number[];
+  def: number[];
+}
 
 /**
  * Servers Maiden is in — one row per guild, so you can see how many servers
