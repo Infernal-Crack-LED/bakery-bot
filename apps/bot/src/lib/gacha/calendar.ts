@@ -18,15 +18,42 @@ export interface CalendarBuckets {
 }
 
 /**
- * Split rows into live/upcoming, dropping anything already ended and
- * anything with no usable schedule at all. Each bucket is sorted by its
- * relevant boundary (live by end, soonest-ending first; upcoming by start).
+ * Which events belong on the calendar. Banners, passes, costume gachas, login
+ * events, packages, maintenance, and arena reshuffles are intentionally left
+ * OFF — the new-content stuff lives in the /patch summary, so the calendar is
+ * just the time-boxed modes worth planning around: raids, co-op, Champion
+ * Arena, and story/mini-game events. Matched by name so it's robust to the
+ * LLM's `type` guess.
+ */
+const CALENDAR_INCLUDE: readonly RegExp[] = [
+  /\bsolo raid\b/i,
+  /\bunion raid\b/i,
+  /coordinated operation/i,
+  /\bco-?op\b/i,
+  /champions?\s*arena/i,
+  /\bstory event\b/i,
+  /\bmini[\s-]?game\b/i,
+];
+
+/** True if this event is one of the calendar-worthy modes (see CALENDAR_INCLUDE). */
+export function isCalendarWorthy(row: GachaEvent): boolean {
+  return CALENDAR_INCLUDE.some((re) => re.test(row.name));
+}
+
+/**
+ * Split rows into live/upcoming, dropping anything already ended, anything with
+ * no usable schedule, and anything not on the calendar whitelist
+ * (isCalendarWorthy). Each bucket is sorted by its relevant boundary (live by
+ * end, soonest-ending first; upcoming by start).
  */
 export function bucketEvents(rows: GachaEvent[], now: Date): CalendarBuckets {
   const live: GachaEvent[] = [];
   const upcoming: GachaEvent[] = [];
 
   for (const row of rows) {
+    if (!isCalendarWorthy(row)) {
+      continue;
+    }
     const ended = row.endsAt !== null && row.endsAt.getTime() <= now.getTime();
     if (ended) {
       continue;
@@ -80,8 +107,9 @@ export function renderCalendar(rows: GachaEvent[], now: Date): string {
   const { live, upcoming } = bucketEvents(rows, now);
   if (live.length === 0 && upcoming.length === 0) {
     return (
-      '📅 No approved events on the calendar yet. Events land here when an ' +
-      'admin approves a proposal with `/events approve`.'
+      '📅 Nothing on the calendar right now. Raids, co-op, Champion Arena, and ' +
+      'story events land here automatically when the bot reads a new NIKKE ' +
+      'patch notice.'
     );
   }
 

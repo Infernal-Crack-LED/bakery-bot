@@ -8,9 +8,9 @@
  * unit-testable with a fake completer, and lets the real adapter live at the
  * edge where it can enforce F2 req 2 (`max_tokens >= 16k`).
  *
- * The result is a proposal + `IngestDiagnostics` ready to be recorded on an
- * `event_ingest_runs` row (status "proposed") for the operator-approve flow.
- * Nothing here writes to the DB or to `gacha_events`.
+ * The result is the extracted events + `IngestDiagnostics`. The caller
+ * (officialSite.ts) auto-applies the events to `gacha_events`; nothing here
+ * writes to the DB.
  */
 
 import type { IngestDiagnostics, ProposedGachaEvent } from '@app/db';

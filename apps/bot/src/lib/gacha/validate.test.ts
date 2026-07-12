@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseIsoInstant,
+  proposedDate,
   summarizeAgreement,
   validateEnvelope,
   validateProposedEvent,
@@ -12,6 +13,19 @@ import type { ProposedGachaEvent } from '@app/db';
  * F2's hard requirements (see the header of validate.ts). All inputs are
  * absolute instants so nothing depends on the wall clock.
  */
+
+describe('proposedDate', () => {
+  it('converts an ISO-with-offset string to the right instant', () => {
+    expect(proposedDate('2026-07-02T18:00:00+09:00')?.toISOString()).toBe(
+      '2026-07-02T09:00:00.000Z'
+    );
+  });
+
+  it('returns null for null or an offset-less string', () => {
+    expect(proposedDate(null)).toBeNull();
+    expect(proposedDate('2026-07-02T18:00:00')).toBeNull();
+  });
+});
 
 describe('parseIsoInstant', () => {
   it('parses an ISO time with an explicit offset', () => {

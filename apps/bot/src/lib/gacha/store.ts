@@ -1,55 +1,28 @@
 /**
- * DB access for the gacha event calendar + approval flow. Everything goes
- * through `@app/db` (golden rule 1); commands import THESE helpers so their
- * tests can mock this one module instead of the Drizzle client.
+ * DB access for the gacha event calendar + official-site patch summaries.
+ * Everything goes through `@app/db` (golden rule 1); callers import THESE
+ * helpers so their tests can mock this one module instead of the Drizzle
+ * client.
  *
- * Write discipline (F2 requirement 1):
- * - `event_ingest_runs` rows are created by the news wiring (news.ts) and
- *   DECIDED here (approved/rejected + who/when) — the audit trail.
- * - `gacha_events` is written by `applyProposal()` ONLY, i.e. only from the
- *   /events approve path.
+ * `gacha_events` is written by `applyEventsToGuild()` ONLY — the auto-apply
+ * step of the official-site check (there is no human approval flow).
  */
 
 import {
   db,
-  eventIngestRuns,
   gachaEvents,
   guildConfig,
-  type EventIngestRun,
+  nikkePatchUpdates,
   type GachaEvent,
+  type NewNikkePatchUpdate,
+  type NikkePatchUpdate,
+  type ProposedGachaEvent,
 } from '@app/db';
-import { and, desc, eq, isNotNull } from 'drizzle-orm';
-import { proposedDate } from './diff.js';
+import { desc, eq, isNotNull } from 'drizzle-orm';
+import { proposedDate } from './validate.js';
+import { configuredNewsChannelIds } from '../guildConfig.js';
 
-/** The most recent runs awaiting a decision for this guild. */
-export async function listPendingRuns(
-  guildId: string,
-  limit = 10
-): Promise<EventIngestRun[]> {
-  return await db.query.eventIngestRuns.findMany({
-    where: and(
-      eq(eventIngestRuns.guildId, guildId),
-      eq(eventIngestRuns.status, 'proposed')
-    ),
-    orderBy: desc(eventIngestRuns.startedAt),
-    limit,
-  });
-}
-
-/** One ingest run, scoped to the guild (so ids can't cross servers). */
-export async function getRun(
-  guildId: string,
-  id: number
-): Promise<EventIngestRun | undefined> {
-  return await db.query.eventIngestRuns.findFirst({
-    where: and(
-      eq(eventIngestRuns.id, id),
-      eq(eventIngestRuns.guildId, guildId)
-    ),
-  });
-}
-
-/** All approved calendar rows for a guild (the diff + calendar input). */
+/** All calendar rows for a guild (the /calendar + reminder input). */
 export async function listGuildEvents(guildId: string): Promise<GachaEvent[]> {
   return await db.query.gachaEvents.findMany({
     where: eq(gachaEvents.guildId, guildId),
@@ -58,36 +31,19 @@ export async function listGuildEvents(guildId: string): Promise<GachaEvent[]> {
 }
 
 /**
- * Record the admin's decision on a run (the audit stamp). Does NOT touch
- * `gacha_events` — approval data lands via `applyProposal`.
+ * Upsert extracted events into `gacha_events` for one guild — the ONLY write
+ * path to the calendar. Conflict target is (guild, type, name), so re-reading
+ * an updated patch updates in place. Reminder-sent stamps are RESET on update
+ * so new times re-arm the reminders. Returns how many events were written.
  */
-export async function decideRun(
-  runId: number,
-  status: 'approved' | 'rejected',
-  decidedBy: string
-): Promise<void> {
-  await db
-    .update(eventIngestRuns)
-    .set({ status, decidedBy, decidedAt: new Date() })
-    .where(eq(eventIngestRuns.id, runId));
-}
-
-/**
- * Upsert an approved proposal into `gacha_events` — the ONLY write path to
- * the calendar. Conflict target is (guild, type, name), so re-approving an
- * updated announcement updates in place. Reminder-sent stamps are RESET on
- * update: new approved times re-arm the reminders.
- *
- * Returns the number of events written.
- */
-export async function applyProposal(
-  run: EventIngestRun,
-  approvedBy: string
+export async function applyEventsToGuild(
+  guildId: string,
+  events: ProposedGachaEvent[],
+  sourceContentId: string
 ): Promise<number> {
-  const proposal = run.proposal ?? [];
-  for (const p of proposal) {
+  for (const p of events) {
     const row = {
-      guildId: run.guildId,
+      guildId,
       name: p.name,
       type: p.type,
       startsAt: proposedDate(p.start),
@@ -95,10 +51,7 @@ export async function applyProposal(
       characters: p.characters,
       notes: p.notes,
       flags: p.flags,
-      sourceMessageId: run.sourceMessageId,
-      sourceChannelId: run.sourceChannelId,
-      ingestRunId: run.id,
-      approvedBy,
+      sourceContentId,
       startReminderSentAt: null,
       endReminderSentAt: null,
       updatedAt: new Date(),
@@ -111,7 +64,7 @@ export async function applyProposal(
         set: row,
       });
   }
-  return proposal.length;
+  return events.length;
 }
 
 /** A guild that opted into reminders via /config reminders. */
@@ -131,6 +84,65 @@ export async function listReminderConfigs(): Promise<ReminderTarget[]> {
       guildId: r.guildId,
       reminderChannelId: r.reminderChannelId!,
     }));
+}
+
+/** A guild that tracks NIKKE news: its id + the channels it watches. */
+export interface NewsGuild {
+  guildId: string;
+  channelIds: string[];
+}
+
+/**
+ * Every guild that configured at least one news channel (same resolution as the
+ * auto-timestamp watcher). These are the servers the official patch TLDR is
+ * broadcast to AND whose calendars the official events auto-populate — so a
+ * server's news channel is exactly where the tweets, the summary, and the
+ * calendar all live.
+ */
+export async function listNewsGuilds(): Promise<NewsGuild[]> {
+  const rows = await db.query.guildConfig.findMany();
+  const guilds: NewsGuild[] = [];
+  for (const row of rows) {
+    const channelIds = configuredNewsChannelIds(row);
+    if (channelIds.length > 0) {
+      guilds.push({ guildId: row.guildId, channelIds });
+    }
+  }
+  return guilds;
+}
+
+// ── Official-site patch TLDRs (global; guild-less) ──────────────────────────
+
+/** Look up a stored patch summary by CMS content id (the global dedup key). */
+export async function findPatchUpdate(
+  contentId: string
+): Promise<NikkePatchUpdate | undefined> {
+  return await db.query.nikkePatchUpdates.findFirst({
+    where: eq(nikkePatchUpdates.contentId, contentId),
+  });
+}
+
+/**
+ * Store one patch summary. Idempotent on `content_id` (do-nothing on conflict)
+ * so a burst of triggers for the same article can never double-insert.
+ */
+export async function insertPatchUpdate(
+  row: NewNikkePatchUpdate
+): Promise<void> {
+  await db
+    .insert(nikkePatchUpdates)
+    .values(row)
+    .onConflictDoNothing({ target: nikkePatchUpdates.contentId });
+}
+
+/** The most recent patch summaries, newest first (for /patch). */
+export async function recentPatchUpdates(
+  limit = 1
+): Promise<NikkePatchUpdate[]> {
+  return await db.query.nikkePatchUpdates.findMany({
+    orderBy: desc(nikkePatchUpdates.publishedAt),
+    limit: Math.max(1, limit),
+  });
 }
 
 /** Stamp a reminder as sent so it can never fire twice. */

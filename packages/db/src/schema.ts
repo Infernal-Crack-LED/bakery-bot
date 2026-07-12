@@ -181,6 +181,13 @@ export interface CharacterAttributes {
   element?: string; // "Fire" | "Water" | "Wind" | "Electric" | "Iron"
   rl3?: number; // Synergy's "3RL" stat (percent; from characters.speed_e)
   releaseDate?: string; // original release date, YYYY-MM-DD
+  normalAttackMultiplier?: number; // percent, e.g. 32.02
+  coreAttackMultiplier?: number; // percent, e.g. 200
+  ammo?: number; // magazine size
+  reloadSeconds?: number; // in-game reload stat in seconds, e.g. 2.5
+  skill1En?: string; // English skill descriptions (multi-line)
+  skill2En?: string;
+  burstSkillEn?: string; // includes a "Cooldown: <n> s" first line
 }
 
 /** Canonical character registry — one row per NIKKE, keyed by a stable slug. */
@@ -304,20 +311,21 @@ export const commandsOnlyGuilds = pgTable('commands_only_guilds', {
 
 export type CommandsOnlyGuild = typeof commandsOnlyGuilds.$inferSelect;
 
-// ─── Gacha event calendar (LLM-ingested, operator-approved) ────────────────
-// Announcements in the watched news channels are parsed by a LOCAL LLM into
-// proposed events. Nothing lands in `gacha_events` until an admin reviews the
-// proposal diff and explicitly approves it (see apps/bot/src/lib/gacha +
-// /events). `event_ingest_runs` mirrors the `nikke_sync_runs` audit pattern.
+// ─── Gacha event calendar (LLM-ingested from the official site) ────────────
+// The global official-site check (apps/bot/src/lib/gacha/officialSite.ts) reads
+// each new nikke-en.com patch notice with a LOCAL LLM, extracts its schedulable
+// events, and auto-populates `gacha_events` for the servers that track NIKKE
+// news. There is no human approval step — the official notice is the source of
+// truth.
 
-/** The valid gacha event categories a proposal may use. */
+/** The valid gacha event categories an extracted event may use. */
 export type GachaEventType = 'banner' | 'event' | 'maintenance';
 
 /**
- * One proposed event as parsed + validated from an announcement. Stored on the
- * ingest run (jsonb) until approved; on approval it is upserted into
- * `gacha_events`. `flags` carries low-confidence markers for the approval view
- * (e.g. "no-end", "midnight-start", "run-disagreement", "characters-scrubbed").
+ * One event as parsed + validated from a patch notice. Produced by the extract
+ * pipeline (apps/bot/src/lib/gacha/ingest.ts) and upserted into `gacha_events`.
+ * `flags` carries low-confidence markers (e.g. "no-end", "midnight-start",
+ * "characters-scrubbed") surfaced in logs.
  */
 export interface ProposedGachaEvent {
   name: string;
@@ -330,7 +338,7 @@ export interface ProposedGachaEvent {
   flags: string[];
 }
 
-/** Diagnostics recorded on each ingest run — powers the approval view. */
+/** Diagnostics from an extraction run — surfaced in logs. */
 export interface IngestDiagnostics {
   /** One entry per LLM pass (the pipeline double-runs the model). */
   runs: Array<{
@@ -348,10 +356,10 @@ export interface IngestDiagnostics {
 }
 
 /**
- * Approved calendar entries — the ONLY table the calendar/reminder features
- * read. Rows are written exclusively by the /events approve flow (never by the
- * LLM pipeline directly). One row per (guild, type, name) so re-approving an
- * updated announcement upserts instead of duplicating.
+ * The event calendar — the table the calendar/reminder features read. Rows are
+ * written by the official-site auto-apply (store.applyEventsToGuild); one row
+ * per (guild, type, name) so a re-read of the same patch upserts instead of
+ * duplicating.
  */
 export const gachaEvents = pgTable(
   'gacha_events',
@@ -365,14 +373,10 @@ export const gachaEvents = pgTable(
     // Rate-up / featured character names (banners only; scrubbed elsewhere).
     characters: jsonb('characters').$type<string[]>(),
     notes: text('notes'),
-    // Low-confidence flags carried over from the approved proposal.
+    // Low-confidence flags carried over from extraction.
     flags: jsonb('flags').$type<string[]>(),
-    // Provenance: which announcement + ingest run produced this row, and who
-    // approved it (Discord user id — snowflake, so text).
-    sourceMessageId: text('source_message_id'),
-    sourceChannelId: text('source_channel_id'),
-    ingestRunId: integer('ingest_run_id'),
-    approvedBy: text('approved_by'),
+    // Provenance: the CMS content id of the official article this came from.
+    sourceContentId: text('source_content_id'),
     // Reminder bookkeeping: set when the start/end reminder has been posted,
     // so a reminder is never sent twice.
     startReminderSentAt: timestamp('start_reminder_sent_at', {
@@ -393,7 +397,7 @@ export const gachaEvents = pgTable(
       table.guildId,
       table.startsAt
     ),
-    // Idempotent approval: re-approving the same event updates it in place.
+    // Idempotent apply: re-reading the same event updates it in place.
     guildTypeNameUnique: uniqueIndex('gacha_events_guild_type_name_unique').on(
       table.guildId,
       table.type,
@@ -405,38 +409,74 @@ export const gachaEvents = pgTable(
 export type GachaEvent = typeof gachaEvents.$inferSelect;
 export type NewGachaEvent = typeof gachaEvents.$inferInsert;
 
-/**
- * Audit log of announcement-ingest runs (mirrors `nikke_sync_runs`). A run is
- * created with status "proposed" (or "error") by the parse pipeline; an admin
- * decision moves it to "approved" / "rejected" and stamps who/when.
- */
-export const eventIngestRuns = pgTable(
-  'event_ingest_runs',
-  {
-    id: serial('id').primaryKey(),
-    guildId: text('guild_id').notNull(),
-    sourceMessageId: text('source_message_id'),
-    sourceChannelId: text('source_channel_id'),
-    startedAt: timestamp('started_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    finishedAt: timestamp('finished_at', { withTimezone: true }),
-    status: text('status').notNull(), // "proposed" | "approved" | "rejected" | "error"
-    // What triggered the run: "news" (auto from a watched channel) or a
-    // command label like "command: Maiden (152…) by user#0".
-    trigger: text('trigger'),
-    proposal: jsonb('proposal').$type<ProposedGachaEvent[]>(),
-    diagnostics: jsonb('diagnostics').$type<IngestDiagnostics>(),
-    decidedBy: text('decided_by'),
-    decidedAt: timestamp('decided_at', { withTimezone: true }),
-  },
-  (table) => ({
-    guildIdx: index('event_ingest_runs_guild_idx').on(table.guildId),
-    messageIdx: index('event_ingest_runs_message_idx').on(
-      table.sourceMessageId
-    ),
-  })
-);
+// ─── Official-site patch TLDRs (GLOBAL, LLM-summarized) ────────────────────
+// A tweet landing in the OFFICIAL community server's news channel triggers ONE
+// global check of nikke-en.com (see lib/gacha/officialSite.ts). Each new
+// article is summarized ONCE — three LLM passes reconciled for accuracy — and
+// stored here keyed by the CMS `content_id`. This table is deliberately
+// guild-LESS: the source is the single official feed, so the summary is
+// computed once per patch, not once per server (the extracted events it also
+// produces DO land per-guild, in `gacha_events`, via applyEventsToGuild).
 
-export type EventIngestRun = typeof eventIngestRuns.$inferSelect;
-export type NewEventIngestRun = typeof eventIngestRuns.$inferInsert;
+/**
+ * The condensed patch summary the 3-pass extractor produces. Intentionally
+ * date-light: the only time that matters is when the patch goes live.
+ */
+export interface PatchTldr {
+  /** When the patch went live, as stated in the notice (e.g. "July 2, 2026"); null if unstated. */
+  patchLiveDate: string | null;
+  /** Brand-new playable characters added this patch (from the "New Nikkes" section). */
+  newCharacters: string[];
+  /** Characters returning on a rerun banner. */
+  rerunCharacters: string[];
+  /** New premium pass name, or null if none this patch. */
+  passName: string | null;
+  /** Costume/skin obtained from that pass, or null. */
+  passCostume: string | null;
+  /** Costume/skin featured in the new costume gacha, or null if none. */
+  costumeGachaCostume: string | null;
+  /** Returning costumes/skins (the "Limited Costume Rerun" section). */
+  rerunSkins: string[];
+  /** Whether a Union Raid runs in this patch. */
+  unionRaid: boolean;
+  /** Whether a Solo Raid runs in this patch. */
+  soloRaid: boolean;
+  /** Whether a Coordinated Operation (co-op boss) runs in this patch. */
+  coop: boolean;
+}
+
+/**
+ * Cross-pass diagnostics for a TLDR extraction — the accuracy signal. "agree"
+ * means every pass produced the same summary (high confidence); "partial"
+ * means the passes disagreed on at least one field (review before trusting).
+ */
+export interface TldrDiagnostics {
+  /** How many of the passes produced a usable object. */
+  passes: number;
+  /** "agree" | "partial" | "single-run" | null (no usable passes). */
+  agreement: string | null;
+  errors: string[];
+}
+
+/**
+ * One official-site patch summary. Guild-less; one row per CMS `content_id`
+ * (the dedup key that guarantees each article is summarized exactly once).
+ */
+export const nikkePatchUpdates = pgTable('nikke_patch_updates', {
+  id: serial('id').primaryKey(),
+  // CMS content_id — the global dedup key so each article is summarized once.
+  contentId: text('content_id').notNull().unique(),
+  title: text('title').notNull(),
+  // Article publish time from the feed (pub_timestamp).
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  // The reconciled 3-pass summary + the accuracy diagnostics.
+  tldr: jsonb('tldr').$type<PatchTldr>().notNull(),
+  diagnostics: jsonb('diagnostics').$type<TldrDiagnostics>(),
+  sourceUrl: text('source_url'),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type NikkePatchUpdate = typeof nikkePatchUpdates.$inferSelect;
+export type NewNikkePatchUpdate = typeof nikkePatchUpdates.$inferInsert;

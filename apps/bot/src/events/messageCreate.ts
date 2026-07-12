@@ -7,7 +7,10 @@ import {
   configuredNewsChannelIds,
   getGuildConfig,
 } from '../lib/guildConfig.js';
-import { proposeEventsFromNews } from '../lib/gacha/news.js';
+import {
+  OFFICIAL_COMMUNITY_GUILD_ID,
+  checkOfficialSite,
+} from '../lib/gacha/officialSite.js';
 import type { Event } from '../types.js';
 
 /**
@@ -122,6 +125,20 @@ export async function handleNewsMessage(message: Message): Promise<void> {
     return;
   }
 
+  // Global official-site check: a tweet landing in the OFFICIAL server's news
+  // channel is our signal to check nikke-en.com ONCE, summarize any new patch
+  // notice (posted as an embed to every configured news channel) AND auto-apply
+  // its events to every news server's /calendar (see lib/gacha/officialSite.ts).
+  // Independent of whether THIS tweet carries a parseable date — the tweet is
+  // just the trigger; the content comes from the site. Fire-and-forget, dedup'd
+  // + serialized inside, ON by default (opt out with
+  // NIKKE_OFFICIAL_INGEST_DISABLED), and never blocks the timestamp reply.
+  if (message.guildId === OFFICIAL_COMMUNITY_GUILD_ID) {
+    void checkOfficialSite({ client: message.client }).catch((error) =>
+      console.error('[official] site check failed', error)
+    );
+  }
+
   const text = messageText(message);
   if (!text) {
     return;
@@ -135,18 +152,6 @@ export async function handleNewsMessage(message: Message): Promise<void> {
   }
 
   rememberStamped(message.id);
-
-  // Gacha event ingestion (off unless GACHA_INGEST_ENABLED): the deterministic
-  // date hit above doubles as the trigger that this post is schedule-bearing,
-  // so random tweets never reach the LLM. Fire-and-forget — the (slow) parse
-  // must never delay the timestamp reply, and it only ever STORES a proposal
-  // for /events review; it never touches the calendar.
-  void proposeEventsFromNews({
-    guildId: message.guildId,
-    channelId: message.channelId,
-    messageId: message.id,
-    text,
-  }).catch((error) => console.error('[gacha] news ingest failed', error));
 
   const content = stamps
     .map(

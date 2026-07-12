@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  parseReloadSeconds,
   parseTranslationDictionary,
   synergyCharacterUrl,
   toAttributes,
@@ -45,6 +46,14 @@ describe('toAttributes', () => {
       code_type: '風圧',
       // multiple re-run ranges → first date is the original release
       release_date: '2023-01-01~2023-01-19 / 2025-10-30~2025-11-20',
+      normal_attack_multiplier: 15.07,
+      core_attack_multiplier: 200,
+      ammo: 60,
+      reload_original: '2.50', // in-game stat, stored as a string
+      skill_1_en:
+        '■ Activates when entering Full Burst.\r\nATK ▲ 5% for 10 sec.',
+      skill_2_en: '',
+      burst_skill_en: 'Cooldown: 40 s\n\n■ Affects all allies.\r\nDEF ▲ 10%.',
     });
     expect(attr).toEqual({
       name: 'アークブラック',
@@ -55,6 +64,13 @@ describe('toAttributes', () => {
       manufacturer: 'Tetra',
       element: 'Wind',
       releaseDate: '2023-01-01',
+      normalAttackMultiplier: 15.07,
+      coreAttackMultiplier: 200,
+      ammo: 60,
+      reloadSeconds: 2.5,
+      // CRLF normalised to LF; the empty skill_2_en is omitted
+      skill1En: '■ Activates when entering Full Burst.\nATK ▲ 5% for 10 sec.',
+      burstSkillEn: 'Cooldown: 40 s\n\n■ Affects all allies.\nDEF ▲ 10%.',
     });
   });
 
@@ -68,6 +84,13 @@ describe('toAttributes', () => {
       company: null,
       code_type: '灼熱',
       release_date: null,
+      normal_attack_multiplier: null,
+      core_attack_multiplier: null,
+      ammo: null,
+      reload_original: null,
+      skill_1_en: null,
+      skill_2_en: null,
+      burst_skill_en: null,
     });
     expect(attr.burst).toBe('Λ');
     expect(attr.burstCooldown).toBeUndefined();
@@ -75,6 +98,24 @@ describe('toAttributes', () => {
     expect(attr.manufacturer).toBeUndefined();
     expect(attr.element).toBe('Fire');
     expect(attr.releaseDate).toBeUndefined();
+    expect(attr.normalAttackMultiplier).toBeUndefined();
+    expect(attr.coreAttackMultiplier).toBeUndefined();
+    expect(attr.ammo).toBeUndefined();
+    expect(attr.reloadSeconds).toBeUndefined();
+    expect(attr.skill1En).toBeUndefined();
+    expect(attr.skill2En).toBeUndefined();
+    expect(attr.burstSkillEn).toBeUndefined();
+  });
+});
+
+describe('parseReloadSeconds', () => {
+  it('parses the in-game reload string and rejects junk', () => {
+    expect(parseReloadSeconds('2.50')).toBe(2.5);
+    expect(parseReloadSeconds('1.00')).toBe(1);
+    expect(parseReloadSeconds(null)).toBeUndefined();
+    expect(parseReloadSeconds('')).toBeUndefined();
+    expect(parseReloadSeconds('0')).toBeUndefined();
+    expect(parseReloadSeconds('n/a')).toBeUndefined();
   });
 });
 

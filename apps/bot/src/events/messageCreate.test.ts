@@ -7,13 +7,8 @@ vi.mock('../lib/guildConfig.js', async (importOriginal) => ({
   getGuildConfig: vi.fn(),
 }));
 
-// The gacha ingestion is exercised by its own tests (lib/gacha/news.test.ts);
-// here we only care that the news watcher hands stamped posts over to it.
-vi.mock('../lib/gacha/news.js', () => ({
-  proposeEventsFromNews: vi.fn().mockResolvedValue('disabled'),
-}));
-
-import { proposeEventsFromNews } from '../lib/gacha/news.js';
+// The official-site check is gated to the official community guild and has its
+// own tests; the fake tweets here use a different guild so it never fires.
 import { getGuildConfig } from '../lib/guildConfig.js';
 import { DEFAULT_OFFSET_MINUTES, event } from './messageCreate.js';
 
@@ -226,36 +221,5 @@ describe('messageCreate (NIKKE news auto-timestamp)', () => {
     await event.execute(message as never); // e.g. a later edit
 
     expect(reply).toHaveBeenCalledOnce();
-  });
-
-  it('hands a stamped post to the gacha ingestion (proposal only)', async () => {
-    vi.mocked(proposeEventsFromNews).mockClear();
-    const { message } = fakeMessage({
-      id: 'ingest-1',
-      embeds: [{ description: 'Special Recruit opens 2025-07-10 20:00 UTC' }],
-    });
-
-    await event.execute(message as never);
-
-    expect(proposeEventsFromNews).toHaveBeenCalledOnce();
-    expect(proposeEventsFromNews).toHaveBeenCalledWith(
-      expect.objectContaining({
-        guildId: 'guild-1',
-        channelId: NEWS_CHANNEL,
-        messageId: 'ingest-1',
-        text: expect.stringContaining('Special Recruit'),
-      })
-    );
-  });
-
-  it('never triggers ingestion for a post with no event time', async () => {
-    vi.mocked(proposeEventsFromNews).mockClear();
-    const { message } = fakeMessage({
-      embeds: [{ description: 'New trailer is live! No dates here.' }],
-    });
-
-    await event.execute(message as never);
-
-    expect(proposeEventsFromNews).not.toHaveBeenCalled();
   });
 });

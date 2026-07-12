@@ -51,6 +51,13 @@ export interface SynergyAttributes {
   manufacturer?: string;
   element?: string;
   releaseDate?: string; // original release date, YYYY-MM-DD
+  normalAttackMultiplier?: number; // percent, e.g. 32.02
+  coreAttackMultiplier?: number; // percent, e.g. 200
+  ammo?: number; // magazine size
+  reloadSeconds?: number; // in-game reload stat (from reload_original)
+  skill1En?: string; // English skill descriptions
+  skill2En?: string;
+  burstSkillEn?: string; // includes a "Cooldown: <n> s" first line
 }
 
 // Synergy stores these header fields as Japanese labels / codes; translate them.
@@ -88,6 +95,16 @@ interface AttackDamageRow {
   company: string | null;
   code_type: string | null;
   release_date: string | null;
+  normal_attack_multiplier: number | null;
+  core_attack_multiplier: number | null;
+  ammo: number | null;
+  // The in-game reload stat in seconds, e.g. "2.50". (`reload_time` also exists
+  // but is frames including ~21 frames of animation overhead — not the stat
+  // shown in game.)
+  reload_original: string | null;
+  skill_1_en: string | null;
+  skill_2_en: string | null;
+  burst_skill_en: string | null;
 }
 
 /** Translate one `attack_damage_characters` row into English attributes. */
@@ -110,7 +127,29 @@ export function toAttributes(row: AttackDamageRow): SynergyAttributes {
     // release_date can list several re-run ranges; the first date is the
     // original release (matches Synergy's "release" field).
     releaseDate: row.release_date?.match(/\d{4}-\d{2}-\d{2}/)?.[0],
+    normalAttackMultiplier: row.normal_attack_multiplier ?? undefined,
+    coreAttackMultiplier: row.core_attack_multiplier ?? undefined,
+    ammo: row.ammo ?? undefined,
+    reloadSeconds: parseReloadSeconds(row.reload_original),
+    skill1En: cleanSkillText(row.skill_1_en),
+    skill2En: cleanSkillText(row.skill_2_en),
+    burstSkillEn: cleanSkillText(row.burst_skill_en),
   };
+}
+
+/** Normalise CRLF and trim; blank/null → undefined. */
+export function cleanSkillText(value: string | null): string | undefined {
+  const text = value?.replace(/\r\n/g, '\n').trim();
+  return text || undefined;
+}
+
+/** "2.50" → 2.5; null/blank/non-numeric → undefined. */
+export function parseReloadSeconds(value: string | null): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 type Fetch = typeof fetch;
@@ -239,7 +278,7 @@ export async function fetchSynergyAttributes(
   fetchImpl: Fetch = fetch
 ): Promise<SynergyAttributes[]> {
   const rows = await getJson<AttackDamageRow[]>(
-    `${API}/attack_damage_characters?select=name,weapon_type,burst_type,burst_cooltime,class_type,company,code_type,release_date`,
+    `${API}/attack_damage_characters?select=name,weapon_type,burst_type,burst_cooltime,class_type,company,code_type,release_date,normal_attack_multiplier,core_attack_multiplier,ammo,reload_original,skill_1_en,skill_2_en,burst_skill_en`,
     fetchImpl
   );
   return rows.map(toAttributes);

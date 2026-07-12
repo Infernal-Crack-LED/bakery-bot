@@ -7,8 +7,8 @@
  * (double-run by default) against the configured LLM endpoint
  * (GACHA_LLM_URL, default http://127.0.0.1:8770/v1), and prints the proposal
  * + diagnostics. Touches NO database and NO Discord — it exercises exactly
- * the parse path the news wiring uses, so it's the way to sanity-check the
- * model/endpoint before enabling GACHA_INGEST_ENABLED.
+ * the parse path the official-site check uses, so it's the way to sanity-check
+ * the model/endpoint the calendar extraction depends on.
  */
 import '../loadEnv.js';
 import { readFileSync } from 'node:fs';

@@ -99,6 +99,15 @@ export function parseIsoInstant(input: string): ParsedInstant | null {
   return { epochSeconds, hour, minute };
 }
 
+/** Convert a validated ISO-with-offset string to a JS Date (null-safe). */
+export function proposedDate(iso: string | null): Date | null {
+  if (!iso) {
+    return null;
+  }
+  const instant = parseIsoInstant(iso);
+  return instant ? new Date(instant.epochSeconds * 1000) : null;
+}
+
 /** Coerce an arbitrary `type` value to a known category (default "event"). */
 function normalizeType(value: unknown): GachaEventType {
   if (typeof value === 'string') {
