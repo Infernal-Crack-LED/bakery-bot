@@ -66,7 +66,6 @@ describe('loadCommands', () => {
       'guides',
       'time',
       'config',
-      'perms',
       'nikke',
     ]) {
       expect(names, `missing /${expected}`).toContain(expected);

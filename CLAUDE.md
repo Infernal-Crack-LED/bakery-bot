@@ -30,7 +30,7 @@ apps/web   ─┘
 2. **Discord snowflake IDs are stored as `text`**, never numeric — they exceed JS safe-integer range.
 3. **Commands and events are auto-loaded** from the filesystem (see the skills). Adding a feature = adding a file that matches the pattern. Do not hand-wire a central registry.
 4. **ESM everywhere.** In `apps/bot` and `packages/db`, relative imports must use explicit `.js` extensions (NodeNext), even from `.ts` files.
-5. **Respect Discord permissions.** Privileged commands gate access — either `.setDefaultMemberPermissions(...)` on the builder (e.g. `/perms`) or an `ensureAdmin(...)` check in code (e.g. `/config`, which also allows hardcoded bot admins in `lib/admin.ts`). Check the bot's own permissions before acting.
+5. **Respect Discord permissions.** Privileged commands gate access — either `.setDefaultMemberPermissions(...)` on the builder (e.g. `/sync`) or an `ensureAdmin(...)` check in code (e.g. `/config`, which also allows hardcoded bot admins in `lib/admin.ts`). Check the bot's own permissions before acting.
 6. **Never commit secrets.** `DISCORD_TOKEN` and `DATABASE_URL` live in env vars / Railway, never in code. Update `.env.example` when adding a new variable.
 7. **Test your changes.** Add a `<name>.test.ts` next to anything with real logic and keep `npm test` green — the loader safety-net test alone catches most broken commands/events. See the `testing` skill.
 8. **Keep the docs in sync.** If you change the architecture, update this file, the skills under `.claude/skills/`, and the README.
@@ -70,5 +70,5 @@ npm run format              # reformat everything with prettier
 - **DB client is lazy**: importing `@app/db` opens no connection; the pool is created on first query. So it's safe to import DB-backed command modules without `DATABASE_URL` (e.g. during `deploy-commands`).
 - **Slash commands** live in `apps/bot/src/commands/<category>/<name>.ts` and `export const command: Command`.
 - **Gateway events** live in `apps/bot/src/events/<name>.ts` and `export const event: Event`.
-- **Privileged/audited actions** (e.g. `/perms` bulk edits) are recorded via `logModAction(...)` so they land in the audit log + mod-log channel.
+- **Privileged/audited actions** are recorded via `logModAction(...)` so they land in the audit log + mod-log channel.
 - **Per-guild settings** go through `getGuildConfig` / `setGuildConfig`, not raw queries.

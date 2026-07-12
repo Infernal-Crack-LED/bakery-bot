@@ -48,7 +48,7 @@ apps/web   ─┘
 Defined in `packages/db/src/schema.ts`:
 
 - **`guild_config`** — one row per server: mod-log, welcome, and news channels.
-- **`mod_actions`** — append-only audit log of privileged actions (e.g. `/perms`).
+- **`mod_actions`** — append-only audit log of privileged actions (written via `logModAction`).
 - **`feature_requests`** — suggestions from `/feature-request`.
 - **`nikke_characters` / `nikke_name_dictionary` / `nikke_sync_runs`** — NIKKE data + sync bookkeeping (populated by the daily sync in `lib/nikke`).
 

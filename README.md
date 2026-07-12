@@ -57,7 +57,6 @@ React to any message with the server's quote emoji — once it hits the configur
 - **`/config quotes emoji:⭐ threshold:3`** — turn on the quote-saver: which reaction saves a message, and how many it takes (default 3).
 - **`/setup-guide`** — DMs you this whole setup checklist, right inside Discord
 - **`/sync`** — refresh the NIKKE data on demand (it also refreshes daily on its own)
-- **`/perms <role> <permission> …`** — bulk-edit one permission for a role across many channels. Previews the changes first and is audit-logged, so it's safe to try.
 
 General moderation (ban/kick/timeout/etc.) is intentionally left to Discord's own built-in tools.
 

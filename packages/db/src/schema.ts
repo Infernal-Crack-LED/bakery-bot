@@ -39,7 +39,7 @@ export const guildConfig = pgTable('guild_config', {
 });
 
 /**
- * Append-only audit log of privileged actions (e.g. /perms bulk edits).
+ * Append-only audit log of privileged actions (written via logModAction).
  */
 export const modActions = pgTable(
   'mod_actions',

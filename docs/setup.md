@@ -31,9 +31,6 @@ Skip this and you'll see the classic symptom: you set up news timestamps, but no
 `🕒` ever shows up. She read the post and worked out the time — she just isn't
 allowed to reply.
 
-_(Using `/perms`? She'll also need **Manage Roles**, and her role has to sit
-**above** any role she edits. Otherwise you can ignore this.)_
-
 ## 2. Turn on the features you want
 
 Everything is set with **`/config`** (only admins can see it). Run **`/config
@@ -46,7 +43,7 @@ show`** anytime to check what's on. Pick and choose — nothing here is required
 - **Welcome messages** — `/config welcome #channel`
   Greets each new member with a little embed.
 - **Mod-log** — `/config modlog #channel`
-  Keeps a log of audited actions like `/perms` edits.
+  Keeps a log of audited admin actions.
 - **Quotes** — `/config quotes emoji:⭐ threshold:3`
   React to a message with your chosen emoji, and once it hits the threshold Maiden
   saves it. Pull up anyone's greatest hits with `/quotes @user`.
@@ -74,8 +71,6 @@ admin can run **`/sync`**.
   to show up the very first time. After that, new servers get them instantly.
 - **Quotes aren't saving** → double-check `/config show`, and that people are
   reacting with _exactly_ the emoji you set, enough times to hit the threshold.
-- **`/perms` won't change something** → Maiden needs **Manage Roles**, and her role
-  must be above the one she's editing.
 
 ---
 

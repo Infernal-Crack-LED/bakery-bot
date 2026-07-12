@@ -50,29 +50,32 @@ Assert on the arguments a stub was called with via `interaction.reply.mock.calls
 
 ## Recipe B — test a command that calls a helper (mock the helper)
 
-Some commands call a shared helper that hits the DB or network — `/perms` calls `logModAction`, `/feature-request` calls `createGithubIssue`. In a test you don't want the real thing, so **mock the helper** to keep the test pure. Model it on `apps/bot/src/commands/admin/perms.test.ts`:
+Some commands call a shared helper that hits the DB or network — `/sync` calls `runNikkeSync`, `/feature-request` calls `createGithubIssue`. In a test you don't want the real thing, so **mock the helper** to keep the test pure. Model it on `apps/bot/src/commands/admin/sync.test.ts`:
 
 ```ts
 import { describe, expect, it, vi } from 'vitest';
 
-// Replace the real modlog with a stub for this whole test file:
-vi.mock('../../lib/modlog.js', () => ({ logModAction: vi.fn() }));
+// Replace the real helpers with stubs for this whole test file:
+vi.mock('../../lib/admin.js', () => ({ ensureAdmin: vi.fn() }));
+vi.mock('../../lib/nikke/sync.js', () => ({ runNikkeSync: vi.fn() }));
 
-import { command } from './perms.js';
-import { logModAction } from '../../lib/modlog.js';
+import { command } from './sync.js';
+import { ensureAdmin } from '../../lib/admin.js';
+import { runNikkeSync } from '../../lib/nikke/sync.js';
 
-describe('/perms', () => {
-  it('previews without editing or logging when apply is omitted', async () => {
+describe('/sync', () => {
+  it('does not sync when the user is not an admin', async () => {
+    vi.mocked(ensureAdmin).mockResolvedValue(false);
     const interaction = {
-      /* fake interaction with vi.fn() stubs — see perms.test.ts */
+      /* fake interaction with vi.fn() stubs — see sync.test.ts */
     };
     await command.execute(interaction as any);
-    expect(logModAction).not.toHaveBeenCalled(); // a dry run logs nothing
+    expect(runNikkeSync).not.toHaveBeenCalled(); // gated out, so nothing runs
   });
 });
 ```
 
-`vi.mock(path, factory)` must use the **same import path the source file uses** (here `"../../lib/modlog.js"`), and it applies to the whole test file. (`github.test.ts` shows the same idea by injecting a fake `fetch`.)
+`vi.mock(path, factory)` must use the **same import path the source file uses** (here `"../../lib/nikke/sync.js"`), and it applies to the whole test file. (`github.test.ts` shows the same idea by injecting a fake `fetch`.)
 
 ## Recipe C — test an event handler
 

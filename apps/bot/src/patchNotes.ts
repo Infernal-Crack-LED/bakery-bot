@@ -32,7 +32,7 @@ export const PATCH_NOTES: PatchNote[] = [
       '**Save quotes** — react to a message with the server’s quote emoji and Maiden saves it under whoever said it; pull up anyone’s greatest hits with `/quotes @user`. Admins set it up with `/config quotes`.',
       '**Quick links** — `/guides`, plus `/build-guide`, `/pvp-teams-guide`, `/raid-usage`, `/pvp-team-builder`, and `/prydwen`.',
       '**Handy extras** — `/help`, `/support`, `/feature-request`, `/unprivate-blabla`, `/github`, and the usual `/serverinfo` · `/userinfo` · `/ping`.',
-      '**For admins** — `/config` (news / welcome / mod-log channels), `/sync` to refresh data, and `/perms` for safe bulk permission edits.',
+      '**For admins** — `/config` (news / welcome / mod-log channels) and `/sync` to refresh data.',
       'Thanks for adding Maiden — feedback and ideas are always welcome via `/feature-request`! ',
     ],
   },

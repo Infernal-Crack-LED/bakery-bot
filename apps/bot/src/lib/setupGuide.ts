@@ -54,8 +54,7 @@ export function buildSetupGuideEmbed(): EmbedBuilder {
         name: 'Not working?',
         value:
           "• **News stamps never appear** → I can't Send Messages there (fix the locked-channel perms in step 1)\n" +
-          '• **A command is missing right after inviting** → global commands can take ~1h the first time\n' +
-          "• **`/perms` won't change things** → I need **Manage Roles**, above the role I'm editing",
+          '• **A command is missing right after inviting** → global commands can take ~1h the first time',
       }
     )
     .setFooter({
