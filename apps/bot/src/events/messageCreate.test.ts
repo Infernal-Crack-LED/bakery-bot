@@ -7,6 +7,8 @@ vi.mock('../lib/guildConfig.js', async (importOriginal) => ({
   getGuildConfig: vi.fn(),
 }));
 
+// The official-site check is gated to the official community guild and has its
+// own tests; the fake tweets here use a different guild so it never fires.
 import { getGuildConfig } from '../lib/guildConfig.js';
 import { DEFAULT_OFFSET_MINUTES, event } from './messageCreate.js';
 

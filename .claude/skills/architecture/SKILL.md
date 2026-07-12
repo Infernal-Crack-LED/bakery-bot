@@ -47,10 +47,11 @@ apps/web   ─┘
 
 Defined in `packages/db/src/schema.ts`:
 
-- **`guild_config`** — one row per server: mod-log, welcome, and news channels.
+- **`guild_config`** — one row per server: mod-log, welcome, news, and gacha-reminder channels.
 - **`mod_actions`** — append-only audit log of privileged actions (written via `logModAction`).
 - **`feature_requests`** — suggestions from `/feature-request`.
 - **`nikke_characters` / `nikke_name_dictionary` / `nikke_sync_runs`** — NIKKE data + sync bookkeeping (populated by the daily sync in `lib/nikke`).
+- **`gacha_events` / `event_ingest_runs`** — approved gacha event calendar + audit log of LLM announcement-ingest proposals (see `lib/gacha`). Only the `/events` approve flow writes `gacha_events`; the LLM pipeline only writes proposals to `event_ingest_runs`. `/calendar` and the reminder sweep (cron in `index.ts`, opt-in via `/config reminders`) read approved rows only.
 
 To change data: edit `schema.ts` → `npm run db:generate` (creates a migration file under `packages/db/drizzle/`) → `npm run db:migrate` (applies it). Never hand-write SQL against the DB; let Drizzle own the schema.
 

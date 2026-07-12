@@ -132,6 +132,13 @@ export function buildCharacters(inputs: SyncInputs): BuildResult {
       manufacturer: attr.manufacturer,
       element: attr.element,
       releaseDate: attr.releaseDate,
+      normalAttackMultiplier: attr.normalAttackMultiplier,
+      coreAttackMultiplier: attr.coreAttackMultiplier,
+      ammo: attr.ammo,
+      reloadSeconds: attr.reloadSeconds,
+      skill1En: attr.skill1En,
+      skill2En: attr.skill2En,
+      burstSkillEn: attr.burstSkillEn,
     };
   }
 

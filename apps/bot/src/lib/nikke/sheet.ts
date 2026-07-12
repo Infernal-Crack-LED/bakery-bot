@@ -18,16 +18,27 @@ export const PRIORITY_GID = 0;
 const UA =
   'Mozilla/5.0 (compatible; BakeryBot/1.0; +https://github.com/maidens-bakery)';
 
-/** The per-priority "* Builds" tabs, fetched by name via the gviz endpoint. */
-const BUILD_TABS = [
-  'Highest Prio Builds',
-  'High Prio Builds',
-  'High Support Prio Builds',
-  'High PvE Prio Builds',
-  'Medium Prio Builds',
-  'PvE Prio Builds',
-  'PvP Prio Builds',
-  'Low Prio Builds',
+/**
+ * The per-priority "* Builds" tabs, fetched by gid via the CSV export endpoint.
+ *
+ * We use `export?format=csv&gid=` (the same endpoint as the priority tab), NOT
+ * the gviz endpoint. gviz infers a data *type* per column and, when a column
+ * looks date-ish (skill cells like "10/10/10", "4/4/4"), coerces the whole
+ * column to dates AND folds leading non-date rows into the header — silently
+ * dropping the first characters of a tab (Moran (T), Little Mermaid) along with
+ * their skill values and nicknames. The export endpoint does no such inference;
+ * it returns cells exactly as displayed. gids are stable numeric sheet ids
+ * (extract new ones from the sheet's /htmlview `items.push({name, gid})` list).
+ */
+const BUILD_TABS: { name: string; gid: number }[] = [
+  { name: 'Highest Prio Builds', gid: 1711972567 },
+  { name: 'High Prio Builds', gid: 1208186054 },
+  { name: 'High Support Prio Builds', gid: 1837351454 },
+  { name: 'High PvE Prio Builds', gid: 1270845330 },
+  { name: 'Medium Prio Builds', gid: 1024047725 },
+  { name: 'PvE Prio Builds', gid: 1394275268 },
+  { name: 'PvP Prio Builds', gid: 1392207570 },
+  { name: 'Low Prio Builds', gid: 1963157400 },
 ];
 
 export interface SheetCharacter {
@@ -229,15 +240,6 @@ export function parseBuildSheet(csv: string): SheetBuildEntry[] {
   return out;
 }
 
-async function fetchGvizCsv(sheet: string, fetchImpl: Fetch): Promise<string> {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheet)}`;
-  const res = await fetchImpl(url, { headers: { 'User-Agent': UA } });
-  if (!res.ok) {
-    throw new Error(`Sheet gviz "${sheet}" → HTTP ${res.status}`);
-  }
-  return res.text();
-}
-
 /** Fetch + parse every "* Builds" tab (one failing tab doesn't sink the rest). */
 export async function fetchTsareenaBuilds(
   fetchImpl: Fetch = fetch
@@ -245,10 +247,10 @@ export async function fetchTsareenaBuilds(
   const all: SheetBuildEntry[] = [];
   for (const tab of BUILD_TABS) {
     try {
-      all.push(...parseBuildSheet(await fetchGvizCsv(tab, fetchImpl)));
+      all.push(...parseBuildSheet(await fetchSheetCsv(tab.gid, fetchImpl)));
     } catch (error) {
       console.warn(
-        `[sheet] build tab "${tab}" failed: ${(error as Error).message}`
+        `[sheet] build tab "${tab.name}" failed: ${(error as Error).message}`
       );
     }
   }

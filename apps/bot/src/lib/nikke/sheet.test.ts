@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseBuildSheet, parseCsv, parsePrioritySheet } from './sheet.js';
+import {
+  fetchTsareenaBuilds,
+  parseBuildSheet,
+  parseCsv,
+  parsePrioritySheet,
+} from './sheet.js';
 
 // A slice of the real priority tab (CRLF endings, annotations, spacing, notes).
 const FIXTURE = [
@@ -90,5 +95,28 @@ describe('parseBuildSheet', () => {
       '4x Element · 4x Attack · 2x Ammo'
     );
     expect(builds[0]!.build.endgameUses).toBe('Story · Solo Raid · PvP');
+  });
+});
+
+describe('fetchTsareenaBuilds', () => {
+  it('fetches build tabs via the CSV export endpoint, never gviz', async () => {
+    // gviz type-infers columns: a skill column of "10/10/10"-style values gets
+    // coerced to dates and its leading non-date rows folded into the header,
+    // silently dropping the first characters of a tab (Moran (T), Little
+    // Mermaid) and their nicknames. The export?format=csv&gid= endpoint does no
+    // such inference. Guard the endpoint on every build-tab request.
+    const urls: string[] = [];
+    const mockFetch = ((url: string) => {
+      urls.push(url);
+      return Promise.resolve({ ok: true, text: () => Promise.resolve('') });
+    }) as unknown as typeof fetch;
+
+    await fetchTsareenaBuilds(mockFetch);
+
+    expect(urls.length).toBeGreaterThan(0);
+    expect(urls.every((u) => /\/export\?format=csv&gid=\d+/.test(u))).toBe(
+      true
+    );
+    expect(urls.some((u) => /gviz/.test(u))).toBe(false);
   });
 });

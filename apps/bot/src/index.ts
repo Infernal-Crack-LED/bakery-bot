@@ -12,6 +12,7 @@ import cron from 'node-cron';
 import { maidenCopiumPng } from './assets/maiden-copium.js';
 import { config } from './config.js';
 import { ensureApplicationEmojis } from './lib/emojis.js';
+import { runReminderSweep } from './lib/gacha/reminders.js';
 import { reconcileGuilds } from './lib/guilds.js';
 import { loadCommands, loadEvents } from './lib/loaders.js';
 import { ICON_EMOJIS, setIconEmojis } from './lib/nikke/icons.js';
@@ -63,6 +64,7 @@ async function main(): Promise<void> {
   console.log(`[startup] registered ${events.length} events`);
 
   scheduleNikkeSync();
+  scheduleGachaReminders();
 
   await client.login(config.token);
 
@@ -179,6 +181,29 @@ function scheduleNikkeSync(): void {
       .catch((error) => console.error('[nikke] sync failed', error));
   });
   console.log('[nikke] scheduled daily sync at 04:00');
+}
+
+/**
+ * Post reminders for approved gacha events (see lib/gacha/reminders.ts).
+ * Same node-cron instance as the NIKKE sync — no second scheduler. Strictly
+ * opt-in per guild (/config reminders) and fail-soft: a sweep error is logged
+ * and the next sweep tries again.
+ */
+function scheduleGachaReminders(): void {
+  if (!hasDatabase()) {
+    console.warn('[gacha] no database configured — skipping reminder sweeps');
+    return;
+  }
+  cron.schedule('*/10 * * * *', () => {
+    runReminderSweep(client)
+      .then((sent) => {
+        if (sent > 0) {
+          console.log(`[gacha] reminder sweep sent ${sent} reminder(s)`);
+        }
+      })
+      .catch((error) => console.error('[gacha] reminder sweep failed', error));
+  });
+  console.log('[gacha] scheduled reminder sweeps every 10 minutes');
 }
 
 main().catch((error) => {

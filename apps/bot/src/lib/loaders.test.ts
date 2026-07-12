@@ -61,13 +61,7 @@ describe('loadCommands', () => {
 
   it('ships the expected worked-example commands', async () => {
     const names = (await loadCommands()).map((c) => c.data.name);
-    for (const expected of [
-      'ping',
-      'guides',
-      'time',
-      'config',
-      'nikke',
-    ]) {
+    for (const expected of ['ping', 'guides', 'time', 'config', 'nikke']) {
       expect(names, `missing /${expected}`).toContain(expected);
     }
   });

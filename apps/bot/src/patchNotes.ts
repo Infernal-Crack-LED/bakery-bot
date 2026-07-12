@@ -23,6 +23,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: 'v1.1.0',
+    title: 'Gacha planning tools ',
+    notes: [
+      '**`/pull <number>`** — see your recruit odds before you spend. Tell Maiden how many pulls you’re planning and she shows how many SSRs to expect and your cumulative chance of landing (and limit-breaking) a rate-up unit or Pilgrim. Pure math, instant, no login.',
+      '**Automatic patch summaries** — when NIKKE posts a new update, Maiden reads the official notice and drops a clean TLDR in your news channel: new characters, rerun banners, the new pass + costume, the costume gacha, rerun skins, and whether Union Raid / Solo Raid / Co-op are running. (English patch notes.)',
+      '**`/calendar`** — the live + upcoming schedule for the modes worth planning around (Solo/Union Raid, Co-op, Champion Arena, and story events), filled in automatically from each patch — no setup. Opt into pre-start/-end pings with `/config reminders`.',
+      '**`/patch`** — pull up the latest patch summary any time, or the last few with `/patch 3`.',
+    ],
+  },
+  {
     version: 'v1.0.0',
     title: 'Maiden is here! ',
     notes: [
