@@ -42,8 +42,8 @@ Golden context you must keep true:
    };
    ```
 
-3. For an **admin / permission-gated** command, copy the shape of `apps/bot/src/commands/admin/perms.ts`. Two ways to gate it:
-   - `.setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)` on the builder (Discord hides it from members without that permission — see `/perms`); or
+3. For an **admin / permission-gated** command, copy the shape of `apps/bot/src/commands/admin/sync.ts`. Two ways to gate it:
+   - `.setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)` on the builder (Discord hides it from members without that permission — see `/sync`); or
    - an `ensureAdmin(interaction)` check at the top of `execute` (allows server admins **and** hardcoded bot admins from `lib/admin.ts` — see `/config`).
      Audit privileged actions with `logModAction(...)`, and check the bot's own permissions before acting.
 

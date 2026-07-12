@@ -13,7 +13,7 @@ Maiden only stores the minimum needed to work. Specifically:
 - **Discord identifiers** — server (guild) IDs, channel IDs, and, for the features below, user IDs and usernames/tags. These are how Discord identifies servers, channels, and people.
 - **Server configuration** — the channels an admin sets with `/config` (news, welcome, and mod-log channels).
 - **Feature requests** — when you use `/feature-request`, we store the text you submit along with your Discord user ID and username, so the maintainer can review it. **This may also be posted as a public GitHub issue** (see "Third parties" below).
-- **Administrative audit records** — when a server admin uses `/perms`, we record who ran it, the affected role/target, and a reason, so the action is auditable.
+- **Administrative audit records** — when a server admin performs an audited action, we record who ran it, the affected target, and a reason, so the action is auditable.
 
 We also store non-personal **game data** (NIKKE character tiers, stats, and builds) fetched from public sources; this contains no information about you.
 

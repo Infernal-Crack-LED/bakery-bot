@@ -11,7 +11,7 @@ describe('buildSetupGuideEmbed', () => {
     expect(text).toContain('Send Messages');
     expect(text).toContain('/config news');
     expect(text).toContain('/config quotes');
-    expect(text).toContain('Manage Roles');
+    expect(text).toContain('/sync');
   });
 });
 
