@@ -189,9 +189,14 @@ function toPubSeconds(value: string | number | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** The CMS caps get_num per request (~20), so deeper history needs paging. */
+const PAGE_SIZE = 20;
+
 /**
  * List the most recent official-news items, newest first, de-duplicated by
- * content id. `limit` bounds how many are returned overall.
+ * content id. `limit` bounds how many are returned overall; the feed is PAGED
+ * (the CMS caps each request at ~20 items) so a large limit reaches further
+ * back than a single request would.
  */
 export async function fetchLatestNews(
   opts: CmsClientOptions = {},
@@ -205,29 +210,34 @@ export async function fetchLatestNews(
 
   const byId = new Map<string, NewsItem>();
   for (const secondary of labels) {
-    const data = await cmsPost(
-      'GetContentByLabelV2',
-      {
-        primary_label_id: column.primaryLabelId,
-        secondary_label_id: secondary,
-        offset: 0,
-        get_num: limit,
-        language: [r.language],
-        gameid: r.gameId,
-      },
-      r
-    );
-    const items = (data.info_content as RawContent[] | undefined) ?? [];
-    for (const item of items) {
-      if (!item.content_id || !item.title) {
-        continue;
+    for (let offset = 0; offset < limit; offset += PAGE_SIZE) {
+      const data = await cmsPost(
+        'GetContentByLabelV2',
+        {
+          primary_label_id: column.primaryLabelId,
+          secondary_label_id: secondary,
+          offset,
+          get_num: PAGE_SIZE,
+          language: [r.language],
+          gameid: r.gameId,
+        },
+        r
+      );
+      const items = (data.info_content as RawContent[] | undefined) ?? [];
+      for (const item of items) {
+        if (!item.content_id || !item.title) {
+          continue;
+        }
+        if (!byId.has(item.content_id)) {
+          byId.set(item.content_id, {
+            contentId: item.content_id,
+            title: item.title,
+            pubTimestamp: toPubSeconds(item.pub_timestamp),
+          });
+        }
       }
-      if (!byId.has(item.content_id)) {
-        byId.set(item.content_id, {
-          contentId: item.content_id,
-          title: item.title,
-          pubTimestamp: toPubSeconds(item.pub_timestamp),
-        });
+      if (data.is_finish === 1 || items.length === 0) {
+        break; // no more pages for this label
       }
     }
   }

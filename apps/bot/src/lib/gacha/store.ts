@@ -9,6 +9,7 @@
  */
 
 import {
+  botMeta,
   db,
   gachaEvents,
   guildConfig,
@@ -143,6 +144,44 @@ export async function recentPatchUpdates(
     orderBy: desc(nikkePatchUpdates.publishedAt),
     limit: Math.max(1, limit),
   });
+}
+
+/** The newest stored patch's publish time (unix seconds), or null if none. */
+export async function latestStoredPubSeconds(): Promise<number | null> {
+  const row = await db.query.nikkePatchUpdates.findFirst({
+    where: isNotNull(nikkePatchUpdates.publishedAt),
+    orderBy: desc(nikkePatchUpdates.publishedAt),
+  });
+  return row?.publishedAt ? Math.floor(row.publishedAt.getTime() / 1000) : null;
+}
+
+// ── Official-feed watermark (bot_meta) ──────────────────────────────────────
+// Tracks the newest article publish time we've already processed, so a check
+// only summarizes articles published SINCE then — never the historical backlog.
+
+const FEED_WATERMARK_KEY = 'official_feed_watermark';
+
+/** The processed-up-to publish time (unix seconds), or null if never set. */
+export async function getFeedWatermark(): Promise<number | null> {
+  const row = await db.query.botMeta.findFirst({
+    where: eq(botMeta.key, FEED_WATERMARK_KEY),
+  });
+  if (!row) {
+    return null;
+  }
+  const n = Number(row.value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Persist the processed-up-to publish time (unix seconds). */
+export async function setFeedWatermark(seconds: number): Promise<void> {
+  await db
+    .insert(botMeta)
+    .values({ key: FEED_WATERMARK_KEY, value: String(seconds) })
+    .onConflictDoUpdate({
+      target: botMeta.key,
+      set: { value: String(seconds), updatedAt: new Date() },
+    });
 }
 
 /** Stamp a reminder as sent so it can never fire twice. */
