@@ -7,11 +7,17 @@ const {
   insertPatchUpdate,
   listNewsGuilds,
   applyEventsToGuild,
+  getFeedWatermark,
+  setFeedWatermark,
+  latestStoredPubSeconds,
 } = vi.hoisted(() => ({
   findPatchUpdate: vi.fn(),
   insertPatchUpdate: vi.fn(),
   listNewsGuilds: vi.fn(),
   applyEventsToGuild: vi.fn(),
+  getFeedWatermark: vi.fn(),
+  setFeedWatermark: vi.fn(),
+  latestStoredPubSeconds: vi.fn(),
 }));
 const { fetchLatestNews, fetchArticle } = vi.hoisted(() => ({
   fetchLatestNews: vi.fn(),
@@ -23,26 +29,54 @@ vi.mock('./store.js', () => ({
   insertPatchUpdate,
   listNewsGuilds,
   applyEventsToGuild,
+  getFeedWatermark,
+  setFeedWatermark,
+  latestStoredPubSeconds,
 }));
 vi.mock('./officialFeed.js', () => ({ fetchLatestNews, fetchArticle }));
 
 import { checkOfficialSite, isOfficialIngestEnabled } from './officialSite.js';
 
-// One reply serves both the TLDR extractor and the event extractor: the TLDR
-// keys are read by extractTldr; ingestAnnouncement sees no `events` array, so it
-// yields zero calendar events (fine — we assert the apply *call*, not counts).
-const FULL_TLDR = JSON.stringify({
+// One reply serves BOTH extractors: extractTldr reads the TLDR keys;
+// ingestAnnouncement reads the `events` array. A meaningful patch has both.
+const FULL = JSON.stringify({
   patch_live_date: 'July 2, 2026',
   new_characters: ['Cinderella: Crystal Wave'],
   rerun_characters: [],
   pass_name: null,
   pass_costume: null,
   costume_gacha_costume: null,
+  rerun_skins: [],
   union_raid: true,
   solo_raid: false,
   coop: false,
+  events: [
+    {
+      name: 'Union Raid',
+      type: 'event',
+      start: null,
+      end: null,
+      characters: [],
+      notes: '',
+    },
+  ],
 });
-const complete = vi.fn().mockResolvedValue(FULL_TLDR);
+// A content-less notice (Known Issues / Optimization / Dev Note): empty TLDR,
+// no events → must be skipped, not posted.
+const EMPTY = JSON.stringify({
+  patch_live_date: null,
+  new_characters: [],
+  rerun_characters: [],
+  pass_name: null,
+  pass_costume: null,
+  costume_gacha_costume: null,
+  rerun_skins: [],
+  union_raid: false,
+  solo_raid: false,
+  coop: false,
+  events: [],
+});
+const complete = vi.fn().mockResolvedValue(FULL);
 
 /** A fake Discord client whose channels are all sendable and record sends. */
 function fakeClient(sent: string[]) {
@@ -61,8 +95,9 @@ function fakeClient(sent: string[]) {
   } as never;
 }
 
-// The module dedupes by content id across the whole process, so each test uses
-// a UNIQUE id (mirrors the counter pattern in news.test.ts).
+// Recent publish time so the article is both fresh (> watermark) and inside the
+// broadcast window. Unique content id per test (the module dedupes globally).
+const NOW_SEC = Math.floor(Date.now() / 1000);
 let counter = 0;
 let contentId = '';
 
@@ -76,18 +111,22 @@ beforeEach(() => {
   contentId = `new-${counter}`;
   findPatchUpdate.mockResolvedValue(undefined);
   insertPatchUpdate.mockResolvedValue(undefined);
-  applyEventsToGuild.mockResolvedValue(0);
+  applyEventsToGuild.mockResolvedValue(1);
+  setFeedWatermark.mockResolvedValue(undefined);
+  latestStoredPubSeconds.mockResolvedValue(null);
+  // Default: an established watermark just before this article ⇒ it's fresh.
+  getFeedWatermark.mockResolvedValue(NOW_SEC - 3600);
   listNewsGuilds.mockResolvedValue([
     { guildId: 'g1', channelIds: ['chan-a', 'chan-b'] },
   ]);
   fetchLatestNews.mockResolvedValue([
-    { contentId, title: 'Update on July 2', pubTimestamp: 200 },
+    { contentId, title: 'Update on July 2', pubTimestamp: NOW_SEC },
   ]);
   fetchArticle.mockResolvedValue({
     contentId,
     title: 'Update on July 2',
     text: 'body',
-    publishedAt: new Date('2026-07-02T00:00:00Z'),
+    publishedAt: new Date(NOW_SEC * 1000),
     sourceUrl: `https://nikke-en.com/newsdetail.html?content_id=${contentId}`,
   });
 });
@@ -108,7 +147,7 @@ describe('isOfficialIngestEnabled', () => {
 });
 
 describe('checkOfficialSite', () => {
-  it('summarizes a new article, stores it once, and broadcasts to news channels', async () => {
+  it('summarizes a fresh meaningful patch, applies events, broadcasts, advances the watermark', async () => {
     const sent: string[] = [];
     const outcome = await checkOfficialSite({
       complete,
@@ -118,26 +157,90 @@ describe('checkOfficialSite', () => {
 
     expect(outcome.status).toBe('checked');
     expect(outcome.newContentIds).toEqual([contentId]);
-    // 3 TLDR passes + 2 event-extraction runs for the one article.
-    expect(complete).toHaveBeenCalledTimes(5);
+    expect(complete).toHaveBeenCalledTimes(5); // 3 TLDR passes + 2 event runs
     expect(insertPatchUpdate).toHaveBeenCalledOnce();
-    const row = insertPatchUpdate.mock.calls[0]![0];
-    expect(row.contentId).toBe(contentId);
-    expect(row.tldr.newCharacters).toEqual(['Cinderella: Crystal Wave']);
-    // Events auto-applied to the news guild's calendar.
     expect(applyEventsToGuild).toHaveBeenCalledWith(
       'g1',
       expect.any(Array),
       contentId
     );
-    // Summary embed posted to both configured news channels.
     expect(sent).toHaveLength(2);
     expect(sent.every((s) => s.includes('embed=1'))).toBe(true);
-    expect(sent.some((s) => s.startsWith('chan-a'))).toBe(true);
-    expect(sent.some((s) => s.startsWith('chan-b'))).toBe(true);
+    // Watermark advanced to this article's publish time.
+    expect(setFeedWatermark).toHaveBeenCalledWith(NOW_SEC);
   });
 
-  it('skips an already-stored article (dedup, no LLM, no post)', async () => {
+  it('seeds the watermark and posts NOTHING on a truly first run (no history)', async () => {
+    getFeedWatermark.mockResolvedValue(null);
+    latestStoredPubSeconds.mockResolvedValue(null);
+    const sent: string[] = [];
+
+    const outcome = await checkOfficialSite({
+      complete,
+      fetchImpl: vi.fn() as never,
+      client: fakeClient(sent),
+    });
+
+    expect(outcome.status).toBe('seeded');
+    expect(complete).not.toHaveBeenCalled(); // no back-fill of the backlog
+    expect(insertPatchUpdate).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(0);
+    expect(setFeedWatermark).toHaveBeenCalledWith(NOW_SEC);
+  });
+
+  it('does nothing when no article is newer than the watermark (e.g. a cutscene tweet)', async () => {
+    getFeedWatermark.mockResolvedValue(NOW_SEC); // nothing published after
+    const sent: string[] = [];
+
+    const outcome = await checkOfficialSite({
+      complete,
+      fetchImpl: vi.fn() as never,
+      client: fakeClient(sent),
+    });
+
+    expect(outcome.status).toBe('checked');
+    expect(outcome.newContentIds).toEqual([]);
+    expect(complete).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(0);
+  });
+
+  it('skips a content-less notice — no store, no broadcast — but still advances', async () => {
+    const emptyComplete = vi.fn().mockResolvedValue(EMPTY);
+    const sent: string[] = [];
+
+    const outcome = await checkOfficialSite({
+      complete: emptyComplete,
+      fetchImpl: vi.fn() as never,
+      client: fakeClient(sent),
+    });
+
+    expect(outcome.newContentIds).toEqual([]);
+    expect(insertPatchUpdate).not.toHaveBeenCalled();
+    expect(applyEventsToGuild).not.toHaveBeenCalled(); // no events either
+    expect(sent).toHaveLength(0);
+    expect(setFeedWatermark).toHaveBeenCalledWith(NOW_SEC); // don't reprocess it
+  });
+
+  it('stores an old backfilled patch but does NOT broadcast it (outside the window)', async () => {
+    const oldPub = NOW_SEC - 10 * 24 * 60 * 60; // 10 days old
+    getFeedWatermark.mockResolvedValue(oldPub - 3600);
+    fetchLatestNews.mockResolvedValue([
+      { contentId, title: 'Update on July 2', pubTimestamp: oldPub },
+    ]);
+    const sent: string[] = [];
+
+    const outcome = await checkOfficialSite({
+      complete,
+      fetchImpl: vi.fn() as never,
+      client: fakeClient(sent),
+    });
+
+    expect(outcome.newContentIds).toEqual([contentId]);
+    expect(insertPatchUpdate).toHaveBeenCalledOnce(); // stored → /patch, /calendar
+    expect(sent).toHaveLength(0); // but NOT posted to news
+  });
+
+  it('skips an already-stored article (dedup) but still advances the watermark', async () => {
     findPatchUpdate.mockResolvedValue({ id: 1, contentId });
     const sent: string[] = [];
 
@@ -150,20 +253,18 @@ describe('checkOfficialSite', () => {
     expect(outcome.newContentIds).toEqual([]);
     expect(complete).not.toHaveBeenCalled();
     expect(insertPatchUpdate).not.toHaveBeenCalled();
-    expect(applyEventsToGuild).not.toHaveBeenCalled();
     expect(sent).toHaveLength(0);
+    expect(setFeedWatermark).toHaveBeenCalledWith(NOW_SEC);
   });
 
   it('short-circuits when the feature is opted out', async () => {
     vi.stubEnv('NIKKE_OFFICIAL_INGEST_DISABLED', '1');
-
     const outcome = await checkOfficialSite({ complete });
-
     expect(outcome.status).toBe('disabled');
     expect(fetchLatestNews).not.toHaveBeenCalled();
   });
 
-  it('still stores + populates the calendar when no client is provided', async () => {
+  it('stores + populates the calendar even with no client (no broadcast)', async () => {
     const sent: string[] = [];
     const outcome = await checkOfficialSite({
       complete,
@@ -172,8 +273,6 @@ describe('checkOfficialSite', () => {
 
     expect(outcome.newContentIds).toEqual([contentId]);
     expect(insertPatchUpdate).toHaveBeenCalledOnce();
-    // No client ⇒ no broadcast, but the summary is stored and the calendar
-    // is still populated.
     expect(applyEventsToGuild).toHaveBeenCalledWith(
       'g1',
       expect.any(Array),

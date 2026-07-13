@@ -327,6 +327,26 @@ export async function extractTldr(
   return { tldr, diagnostics: { passes: n, agreement, errors } };
 }
 
+/**
+ * Whether a TLDR carries real patch content worth posting. Notices like "Known
+ * Issues", "Optimization", or a "Developer's Note" extract to an all-empty TLDR
+ * (no characters/pass/gacha/skins, no raids) — those are NOT patch summaries and
+ * should be skipped rather than broadcast as an empty embed. The live-date alone
+ * doesn't count (a bare maintenance notice can state one).
+ */
+export function isTldrMeaningful(t: PatchTldr): boolean {
+  return (
+    t.newCharacters.length > 0 ||
+    t.rerunCharacters.length > 0 ||
+    t.rerunSkins.length > 0 ||
+    t.passName !== null ||
+    t.costumeGachaCostume !== null ||
+    t.unionRaid ||
+    t.soloRaid ||
+    t.coop
+  );
+}
+
 // ── Discord rendering ───────────────────────────────────────────────────────
 
 /**
