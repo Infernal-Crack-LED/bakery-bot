@@ -35,7 +35,12 @@ vi.mock('./store.js', () => ({
 }));
 vi.mock('./officialFeed.js', () => ({ fetchLatestNews, fetchArticle }));
 
-import { checkOfficialSite, isOfficialIngestEnabled } from './officialSite.js';
+import {
+  checkOfficialSite,
+  isFullPatchNote,
+  isOfficialIngestEnabled,
+  isUpdateAnnouncementTweet,
+} from './officialSite.js';
 
 // One reply serves BOTH extractors: extractTldr reads the TLDR keys;
 // ingestAnnouncement reads the `events` array. A meaningful patch has both.
@@ -61,21 +66,6 @@ const FULL = JSON.stringify({
     },
   ],
 });
-// A content-less notice (Known Issues / Optimization / Dev Note): empty TLDR,
-// no events → must be skipped, not posted.
-const EMPTY = JSON.stringify({
-  patch_live_date: null,
-  new_characters: [],
-  rerun_characters: [],
-  pass_name: null,
-  pass_costume: null,
-  costume_gacha_costume: null,
-  rerun_skins: [],
-  union_raid: false,
-  solo_raid: false,
-  coop: false,
-  events: [],
-});
 const complete = vi.fn().mockResolvedValue(FULL);
 
 /** A fake Discord client whose channels are all sendable and record sends. */
@@ -86,7 +76,10 @@ function fakeClient(sent: string[]) {
         Promise.resolve({
           isSendable: () => true,
           send: (payload: { embeds?: unknown[] }) => {
-            sent.push(`${id}:embed=${payload.embeds?.length ?? 0}`);
+            const title =
+              (payload.embeds?.[0] as { data?: { title?: string } })?.data
+                ?.title ?? '';
+            sent.push(`${id}:embed=${payload.embeds?.length ?? 0}:${title}`);
             return Promise.resolve();
           },
         })
@@ -204,21 +197,61 @@ describe('checkOfficialSite', () => {
     expect(sent).toHaveLength(0);
   });
 
-  it('skips a content-less notice — no store, no broadcast — but still advances', async () => {
-    const emptyComplete = vi.fn().mockResolvedValue(EMPTY);
+  it('skips a non-full-patch-note by title — no fetch, no LLM, no post — but still advances', async () => {
+    fetchLatestNews.mockResolvedValue([
+      { contentId, title: 'July 8 Known Issues', pubTimestamp: NOW_SEC },
+    ]);
     const sent: string[] = [];
 
     const outcome = await checkOfficialSite({
-      complete: emptyComplete,
+      complete,
       fetchImpl: vi.fn() as never,
       client: fakeClient(sent),
     });
 
     expect(outcome.newContentIds).toEqual([]);
+    expect(fetchArticle).not.toHaveBeenCalled(); // filtered by title first
+    expect(complete).not.toHaveBeenCalled();
     expect(insertPatchUpdate).not.toHaveBeenCalled();
-    expect(applyEventsToGuild).not.toHaveBeenCalled(); // no events either
     expect(sent).toHaveLength(0);
     expect(setFeedWatermark).toHaveBeenCalledWith(NOW_SEC); // don't reprocess it
+  });
+
+  it('broadcasts ONLY the most recent patch when several are fresh (older ones stored, not posted)', async () => {
+    const older = `old-${counter}`;
+    const newer = contentId; // `new-${counter}`
+    getFeedWatermark.mockResolvedValue(NOW_SEC - 7200);
+    fetchLatestNews.mockResolvedValue([
+      { contentId: newer, title: 'Update on July 8', pubTimestamp: NOW_SEC },
+      {
+        contentId: older,
+        title: 'Update on July 1',
+        pubTimestamp: NOW_SEC - 3600,
+      },
+    ]);
+    fetchArticle.mockImplementation((id: string) =>
+      Promise.resolve({
+        contentId: id,
+        title: id === newer ? 'Update on July 8' : 'Update on July 1',
+        text: 'body',
+        publishedAt: new Date((id === newer ? NOW_SEC : NOW_SEC - 3600) * 1000),
+        sourceUrl: `https://nikke-en.com/newsdetail.html?content_id=${id}`,
+      })
+    );
+    const sent: string[] = [];
+
+    await checkOfficialSite({
+      complete,
+      fetchImpl: vi.fn() as never,
+      client: fakeClient(sent),
+    });
+
+    // Both patches stored + backfilled to /patch and /calendar...
+    expect(insertPatchUpdate).toHaveBeenCalledTimes(2);
+    // ...but only ONE summary (the newest) is broadcast — one embed per channel.
+    expect(sent).toHaveLength(2);
+    expect(sent.every((s) => s.includes('Update on July 8'))).toBe(true);
+    expect(sent.some((s) => s.includes('Update on July 1'))).toBe(false);
   });
 
   it('stores an old backfilled patch but does NOT broadcast it (outside the window)', async () => {
@@ -279,5 +312,60 @@ describe('checkOfficialSite', () => {
       contentId
     );
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe('isUpdateAnnouncementTweet', () => {
+  it('matches bracketed update-notice titles', () => {
+    expect(
+      isUpdateAnnouncementTweet('【Version Update Maintenance Notice】')
+    ).toBe(true);
+    expect(isUpdateAnnouncementTweet('【July 8 Update Notice】')).toBe(true);
+    // Case-insensitive, and works when embedded in a larger tweet body.
+    expect(
+      isUpdateAnnouncementTweet('New! 【August update】 details below 👇')
+    ).toBe(true);
+  });
+
+  it('ignores cutscenes, teasers, and anything without a 【…Update…】 title', () => {
+    expect(
+      isUpdateAnnouncementTweet(
+        '【Contains Spoilers - 「WAVE TO YOU」 Summer Cutscene】'
+      )
+    ).toBe(false);
+    expect(isUpdateAnnouncementTweet('ISLAND BREAKER minigame is live!')).toBe(
+      false
+    );
+    expect(isUpdateAnnouncementTweet('Update your team before the raid')).toBe(
+      false // "Update" present but not inside 【…】
+    );
+    expect(isUpdateAnnouncementTweet('')).toBe(false);
+  });
+});
+
+describe('isFullPatchNote', () => {
+  it('matches "Update on <date>" patch-note titles', () => {
+    for (const t of [
+      'Update on July 2',
+      'Update on June 11',
+      'Update on May 28',
+      'Update on May 14',
+      'Update on April 23',
+    ]) {
+      expect(isFullPatchNote(t)).toBe(true);
+    }
+  });
+
+  it('rejects notices, optimizations, dev notes, and guides', () => {
+    for (const t of [
+      'July 2 Known Issues',
+      'Optimization on July 2',
+      "June 2026 Developer's Note",
+      'Notice Regarding Recent Combat-Related Issues',
+      'April 29 New Version Update Guide', // contains "Update" but not "Update on …"
+      'April 28 Update Notice',
+    ]) {
+      expect(isFullPatchNote(t)).toBe(false);
+    }
   });
 });

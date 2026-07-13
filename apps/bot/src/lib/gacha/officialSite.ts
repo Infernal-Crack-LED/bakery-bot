@@ -1,22 +1,24 @@
 /**
  * Global official-site check (the source of the calendar + patch summaries).
  *
- * When a tweet lands in the OFFICIAL community server's news channel
- * (events/messageCreate.ts fires this), we check nikke-en.com ONCE — globally,
- * not per server. For each brand-new article we:
- *   1. summarize it into a `PatchTldr` (nikke_patch_updates, keyed by content id)
- *      and BROADCAST that summary to every configured news channel;
+ * When an UPDATE-announcing tweet (【…Update…】, see isUpdateAnnouncementTweet)
+ * lands in the OFFICIAL community server's news channel, we check nikke-en.com
+ * ONCE — globally, not per server. For each brand-new article we:
+ *   1. summarize it into a `PatchTldr` (nikke_patch_updates, keyed by content id);
  *   2. extract its schedulable events and AUTO-APPLY them to `gacha_events` for
  *      every server that tracks NIKKE news (this is what `/calendar` reads).
- * There is no human approval step — the official notice is the source of truth.
+ * Then we BROADCAST a SINGLE summary — the most recent patch — to every
+ * configured news channel. There is no human approval step — the official
+ * notice is the source of truth.
  *
  * Design guarantees:
  * - FORWARD-ONLY: a persisted watermark (newest processed publish time) means a
  *   check only ever looks at articles published SINCE the last one — it never
  *   back-fills the historical feed. First run with no history seeds the
  *   watermark and posts nothing.
- * - NO EMPTY POSTS: notices with no patch content (Known Issues, Optimization,
- *   Developer's Note, …) extract to an empty TLDR and are skipped, not posted.
+ * - FULL PATCH NOTES ONLY: only articles titled "Update on …" (see
+ *   isFullPatchNote) are recorded/posted; Known Issues, Optimizations,
+ *   Developer's Notes, and other notices are skipped before any LLM cost.
  * - ONE check per update: dedup by CMS content id (in-memory + DB) on top of the
  *   watermark, so repeated tweets / the create+update pair never re-summarize.
  * - Serialized: an in-flight check short-circuits concurrent triggers, so the
@@ -24,7 +26,7 @@
  * - ON by default + fail-soft: opt OUT with NIKKE_OFFICIAL_INGEST_DISABLED.
  */
 
-import type { NewNikkePatchUpdate } from '@app/db';
+import type { NewNikkePatchUpdate, PatchTldr } from '@app/db';
 import { EmbedBuilder, type Client } from 'discord.js';
 import { ingestAnnouncement } from './ingest.js';
 import { createLlmComplete } from './llmClient.js';
@@ -39,7 +41,7 @@ import {
   setFeedWatermark,
   type NewsGuild,
 } from './store.js';
-import { buildTldrEmbed, extractTldr, isTldrMeaningful } from './tldr.js';
+import { buildTldrEmbed, extractTldr } from './tldr.js';
 import type { LlmComplete } from './ingest.js';
 
 /**
@@ -48,6 +50,33 @@ import type { LlmComplete } from './ingest.js';
  * summary it produces is shared by every server.
  */
 export const OFFICIAL_COMMUNITY_GUILD_ID = '1523950206016557196';
+
+/**
+ * A patch-announcing tweet carries a bracketed title containing "Update", e.g.
+ * 【July 8 Update Notice】 or 【Version Update Maintenance Notice】. ONLY these
+ * trigger the official-site check — cutscenes, videos, teasers, and other posts
+ * never kick off a patch summary. `【`/`】` are the full-width brackets NIKKE
+ * uses; `[^】]*` keeps the match inside a single bracket pair.
+ */
+const UPDATE_TWEET_RE = /【[^】]*update[^】]*】/i;
+
+/** Whether a tweet's text announces a game update (see UPDATE_TWEET_RE). */
+export function isUpdateAnnouncementTweet(text: string): boolean {
+  return UPDATE_TWEET_RE.test(text);
+}
+
+/**
+ * A FULL patch note has an article title like "Update on July 2" (Update on
+ * <date>). ONLY these are recorded as patch summaries — "… Known Issues",
+ * "Optimization on …", "… Developer's Note", "Notice Regarding …", and other
+ * notices are deliberately NOT, even if a check runs.
+ */
+const FULL_PATCH_TITLE_RE = /^\s*update on\b/i;
+
+/** Whether an article title is a full patch note (see FULL_PATCH_TITLE_RE). */
+export function isFullPatchNote(title: string): boolean {
+  return FULL_PATCH_TITLE_RE.test(title);
+}
 
 /**
  * Feature gate: the official-site check is ON by default. Opt OUT by setting
@@ -193,6 +222,14 @@ async function runCheck(
   let processed = 0;
   let capped = 0;
   let maxPub = watermark;
+  // The single most-recent patch to auto-post. Older fresh patches are still
+  // stored + applied to the calendar, but only ONE summary is broadcast per
+  // check (fresh is oldest-first, so the last candidate is the newest).
+  let toBroadcast: {
+    tldr: PatchTldr;
+    title: string;
+    sourceUrl: string | null;
+  } | null = null;
 
   for (const item of fresh) {
     if (
@@ -201,6 +238,12 @@ async function runCheck(
     ) {
       summarized.add(item.contentId);
       maxPub = Math.max(maxPub, pub(item)); // already handled; advance past it
+      continue;
+    }
+    // Only FULL patch notes ("Update on …") are recorded — skip notices,
+    // optimizations, dev-notes, etc. BEFORE any fetch/LLM cost.
+    if (!isFullPatchNote(item.title)) {
+      maxPub = Math.max(maxPub, pub(item));
       continue;
     }
     // Cap the LLM cost per check; leave the rest for the next trigger by NOT
@@ -221,9 +264,8 @@ async function runCheck(
     const article = await fetchArticle(item.contentId, cmsOpts);
     const { tldr, diagnostics } = await extractTldr(article.text, complete, {});
     const { events } = await ingestAnnouncement(article.text, complete);
-    const meaningful = isTldrMeaningful(tldr);
 
-    // Always feed the calendar with any dated events (idempotent upsert).
+    // Feed the calendar with any dated events (idempotent upsert).
     if (events.length > 0) {
       for (const guild of await guilds()) {
         try {
@@ -237,17 +279,6 @@ async function runCheck(
       }
     }
 
-    if (!meaningful) {
-      // A notice / known-issues / dev-note: no patch content. Don't store it as
-      // a "patch summary" and don't post an empty embed.
-      console.log(
-        `[official] skipped "${article.title || item.title}" — no patch ` +
-          `content (${events.length} event(s) applied to calendar)`
-      );
-      maxPub = Math.max(maxPub, pub(item));
-      continue;
-    }
-
     const row: NewNikkePatchUpdate = {
       contentId: item.contentId,
       title: article.title || item.title,
@@ -258,27 +289,32 @@ async function runCheck(
     };
     await insertPatchUpdate(row);
     newContentIds.push(item.contentId);
+    console.log(`[official] summarized "${row.title}" (${item.contentId})`);
 
-    // Broadcast only for RECENT patches — backfilled old ones still land in
-    // /calendar + /patch above, but aren't posted to news as if they were new.
+    // Queue for broadcast only if RECENT — a backfilled old patch still lands in
+    // /calendar + /patch above, but isn't posted to news as if it were new.
     const recent = pub(item) > 0 && nowSec - pub(item) <= BROADCAST_MAX_AGE_SEC;
-    if (opts.client && recent) {
-      const embed = buildTldrEmbed(tldr, {
+    if (recent) {
+      toBroadcast = {
+        tldr,
         title: row.title,
-        now,
-        sourceUrl: article.sourceUrl ?? undefined,
-      });
-      const posted = await broadcastEmbed(opts.client, embed, await guilds());
-      console.log(
-        `[official] summarized + posted "${row.title}" to ${posted} channel(s)`
-      );
-    } else {
-      console.log(
-        `[official] summarized "${row.title}" (stored, not broadcast — ` +
-          `${recent ? 'no client' : 'older than broadcast window'})`
-      );
+        sourceUrl: article.sourceUrl,
+      };
     }
     maxPub = Math.max(maxPub, pub(item));
+  }
+
+  // Auto-post ONE summary: the most recent patch (older ones are stored only).
+  if (opts.client && toBroadcast) {
+    const embed = buildTldrEmbed(toBroadcast.tldr, {
+      title: toBroadcast.title,
+      now,
+      sourceUrl: toBroadcast.sourceUrl ?? undefined,
+    });
+    const posted = await broadcastEmbed(opts.client, embed, await guilds());
+    console.log(
+      `[official] posted latest summary "${toBroadcast.title}" to ${posted} channel(s)`
+    );
   }
 
   if (maxPub > watermark) {

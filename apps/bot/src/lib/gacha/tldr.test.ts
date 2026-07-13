@@ -4,7 +4,6 @@ import {
   buildTldrPrompt,
   extractTldr,
   isPatchLive,
-  isTldrMeaningful,
   renderTldr,
   salvageTldr,
   stripRarityPrefix,
@@ -196,23 +195,6 @@ describe('extractTldr', () => {
     });
     expect(diagnostics.passes).toBe(1);
     expect(diagnostics.agreement).toBe('single-run');
-  });
-});
-
-describe('isTldrMeaningful', () => {
-  it('is true when any patch content is present', () => {
-    expect(isTldrMeaningful(validateTldr(FULL))).toBe(true);
-    expect(isTldrMeaningful(validateTldr({ solo_raid: true }))).toBe(true);
-    expect(isTldrMeaningful(validateTldr({ costume_gacha_costume: 'X' }))).toBe(
-      true
-    );
-  });
-
-  it('is false for a content-less notice (empty TLDR, live date alone does not count)', () => {
-    expect(isTldrMeaningful(validateTldr({}))).toBe(false);
-    expect(
-      isTldrMeaningful(validateTldr({ patch_live_date: 'July 2, 2026' }))
-    ).toBe(false);
   });
 });
 
