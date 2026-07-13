@@ -39,7 +39,9 @@ export const command: Command = {
       const lines = [
         `✅ Sync **${summary.status}** — ${summary.characters} characters, ` +
           `${summary.prydwenTiers} Prydwen tiers, ${summary.dictionaryEntries} dictionary entries` +
-          `${summary.baseStatsFetched ? `, ${summary.baseStatsFetched} base-stat fetches` : ''}.`,
+          `${summary.baseStatsFetched ? `, ${summary.baseStatsFetched} base-stat fetches` : ''}` +
+          `${summary.portraits ? `, ${summary.portraits} portraits` : ''}` +
+          `.`,
         `Unmatched — sheet ${u.sheet}, arena ${u.arenaStats}, untranslated ${u.untranslated}.`,
       ];
       if (summary.errors.length) {

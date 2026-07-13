@@ -18,8 +18,9 @@ import {
   nikkeSyncRuns,
   NIKKE_LEVEL_MULTIPLIER_KEY,
 } from '@app/db';
-import { eq, isNull, sql } from 'drizzle-orm';
+import { eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import {
+  characterPortraitUrl,
   deriveLevelMultiplier,
   fetchBlablalinkRoster,
   fetchRoleData,
@@ -55,6 +56,8 @@ export interface SyncSummary {
   prydwenTiers: number;
   /** How many characters got their one-time base-stats fetch this run. */
   baseStatsFetched: number;
+  /** How many characters had their blablalink portrait URL set/updated. */
+  portraits: number;
   errors: string[];
   unmatched: { untranslated: number; arenaStats: number; sheet: number };
 }
@@ -136,6 +139,42 @@ async function syncBaseStats(): Promise<BaseStatsResult> {
   }
 
   return { fetched, unmatched, errors };
+}
+
+/**
+ * Point each character's `imageUrl` at its blablalink high-res portrait. The URL
+ * is a pure function of the blablalink `resource_id` (stored in `baseStats`), so
+ * this needs no network calls — it just derives the URL and writes it where it
+ * differs from what's stored. Characters without base stats yet keep their
+ * Synergy fallback URL until a later run backfills their resource_id.
+ */
+async function syncPortraits(): Promise<number> {
+  const rows = await db
+    .select({
+      id: nikkeCharacters.id,
+      imageUrl: nikkeCharacters.imageUrl,
+      baseStats: nikkeCharacters.baseStats,
+    })
+    .from(nikkeCharacters)
+    .where(isNotNull(nikkeCharacters.baseStats));
+
+  let updated = 0;
+  for (const row of rows) {
+    const resourceId = row.baseStats?.resourceId;
+    if (resourceId == null) {
+      continue;
+    }
+    const url = characterPortraitUrl(resourceId);
+    if (row.imageUrl === url) {
+      continue;
+    }
+    await db
+      .update(nikkeCharacters)
+      .set({ imageUrl: url, updatedAt: sql`now()` })
+      .where(eq(nikkeCharacters.id, row.id));
+    updated += 1;
+  }
+  return updated;
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -251,7 +290,11 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
         target: nikkeCharacters.id,
         set: {
           name: sql`excluded.name`,
-          imageUrl: sql`excluded.image_url`,
+          // imageUrl is intentionally NOT refreshed here: once syncPortraits sets
+          // a character's blablalink portrait we must not clobber it back to the
+          // Synergy fallback each run. Fresh rows still get the Synergy URL on
+          // insert (the values above); syncPortraits upgrades it once the
+          // resource_id is known.
           aliases: sql`excluded.aliases`,
           synergyId: sql`excluded.synergy_id`,
           synergyUrl: sql`excluded.synergy_url`,
@@ -279,6 +322,11 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
   );
   errors.push(...baseStats.errors);
 
+  // Derive high-res blablalink portraits from the resource_ids we now have. Runs
+  // AFTER base stats so freshly-fetched resource_ids are included. Pure derivation
+  // (no network); a failure degrades to "partial" like any other source.
+  const portraits = await guarded('portraits', syncPortraits, 0);
+
   const status: SyncSummary['status'] = errors.length
     ? characters.length
       ? 'partial'
@@ -298,6 +346,7 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
         sheetRows: sheetPriority.length,
         prydwenTiers: prydwenMatched,
         baseStatsFetched: baseStats.fetched,
+        portraits,
       },
       unmatched: { ...unmatched, baseStats: baseStats.unmatched },
       errors,
@@ -310,6 +359,7 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
     dictionaryEntries: dictRows.length,
     prydwenTiers: prydwenMatched,
     baseStatsFetched: baseStats.fetched,
+    portraits,
     errors,
     unmatched: {
       untranslated: unmatched.untranslated.length,

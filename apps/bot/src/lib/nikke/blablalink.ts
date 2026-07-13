@@ -76,6 +76,38 @@ export function resourceUrl(path: string): string {
   return `${CDN}/${obfuscated}`;
 }
 
+// ─── Character images ───────────────────────────────────────────────────────
+// blablalink's roledata/nikke_list carry no portrait URLs — only asset keys. But
+// ShiftyPad's bundle builds character-image URLs deterministically from the
+// `resource_id`: it forms a logical path and runs it through the SAME obfuscation
+// as the stat JSON (see resourceUrl above). Reproduced here 1:1 from the bundle:
+//   FULL_CHARACTER_URL → /character/full/c<id>_<skin>.png   (full body, 2048²)
+//   MI_CHARACTER_URL   → /character/mi/mi_c<id>_<skin>_s.png (portrait, 256×512)
+//   SM_CHARACTER_URL   → /character/si/si_c<id>_<skin>_s.png (square icon, 128²)
+// where the code is `c` + resource_id zero-padded to 3 and skin index to 2.
+// Because it's a pure function of resource_id, no extra network request is needed.
+
+/** The `c090_00`-style asset code for a character + costume slot. */
+function assetCode(resourceId: number, skinIndex: number): string {
+  const pad = (n: number, width: number): string =>
+    String(n).padStart(width, '0');
+  return `c${pad(resourceId, 3)}_${pad(skinIndex, 2)}`;
+}
+
+/**
+ * High-res portrait (the 256×512 "mi" bust crop, transparent background) for a
+ * character by blablalink resource_id. `skinIndex` 0 is the default costume.
+ * This is what the sync stores as a character's `imageUrl`.
+ */
+export function characterPortraitUrl(
+  resourceId: number,
+  skinIndex = 0
+): string {
+  return resourceUrl(
+    `/character/mi/mi_${assetCode(resourceId, skinIndex)}_s.png`
+  );
+}
+
 // ─── Types (only the fields we read from the large roledata payload) ────────
 
 /** One entry from the roster list — enough to map a name to its resource_id. */
