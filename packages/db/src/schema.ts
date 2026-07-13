@@ -8,6 +8,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  uuid,
 } from 'drizzle-orm/pg-core';
 
 /**
@@ -532,3 +533,29 @@ export const nikkePatchUpdates = pgTable('nikke_patch_updates', {
 
 export type NikkePatchUpdate = typeof nikkePatchUpdates.$inferSelect;
 export type NewNikkePatchUpdate = typeof nikkePatchUpdates.$inferInsert;
+
+/**
+ * NIKKE-sim saved teams. One row per (Discord user, team name). `code` is the
+ * opaque build-code from nikke-sim (`src/share/build-code.ts`) — the full team
+ * + loadout + boss globals, base64url-encoded. Saved from the sim site (Discord
+ * OAuth) and listed/loaded by the site and the `/myteams` bot command.
+ */
+export const userTeams = pgTable(
+  'user_teams',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    discordId: text('discord_id').notNull(),
+    name: text('name').notNull(),
+    code: text('code').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index('user_teams_discord_id_idx').on(t.discordId),
+    uniqueIndex('user_teams_discord_id_name_uq').on(t.discordId, t.name),
+  ]
+);
+
+export type UserTeam = typeof userTeams.$inferSelect;
+export type NewUserTeam = typeof userTeams.$inferInsert;
