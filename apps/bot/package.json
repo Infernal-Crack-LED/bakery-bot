@@ -28,7 +28,8 @@
     "chrono-node": "^2.9.1",
     "discord.js": "^14.16.3",
     "drizzle-orm": "^0.36.4",
-    "node-cron": "^4.6.0"
+    "node-cron": "^4.6.0",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
