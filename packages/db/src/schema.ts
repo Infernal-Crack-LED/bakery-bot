@@ -227,7 +227,9 @@ export interface BaseStats {
 export const nikkeCharacters = pgTable('nikke_characters', {
   id: text('id').primaryKey(), // canonical slug, e.g. "anis-star"
   name: text('name').notNull(), // canonical English display name
-  // Character portrait (hosted by Nikke Synergy); used as the embed thumbnail.
+  // Character portrait, used as the embed thumbnail. Set to the high-res
+  // blablalink portrait (derived from baseStats.resourceId in the sync); falls
+  // back to the Nikke Synergy portrait until a character's resource_id is known.
   imageUrl: text('image_url'),
   // Nicknames/abbreviations for search (from the sheet's aliases + an
   // auto-generated acronym). Lowercased; e.g. ["rrh"] for "Rapi: Red Hood".

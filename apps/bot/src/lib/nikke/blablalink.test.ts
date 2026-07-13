@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  characterPortraitUrl,
   deriveLevelMultiplier,
   fetchBlablalinkRoster,
   parseBaseStats,
@@ -40,6 +41,20 @@ describe('resourceUrl', () => {
     );
     expect(resourceUrl('/character/CharacterLevelTable.json')).toBe(
       'https://sg-tools-cdn.blablalink.com/dv-15/e8b9e7f748f8734b2848842b47bf1cb2.json'
+    );
+  });
+});
+
+describe('characterPortraitUrl', () => {
+  // Golden values captured from ShiftyPad's live bundle — the "mi" portrait path
+  // (c<id:3>_<skin:2>) run through the same obfuscation as the stat JSON.
+  it('builds the obfuscated portrait URL from resource_id + skin', () => {
+    expect(characterPortraitUrl(90)).toBe(
+      'https://sg-tools-cdn.blablalink.com/jd-62/ms-75/c8cd256b1331c907b0c4bbadeefe2356.png'
+    );
+    // Zero-pads resource_id to 3 and the skin index to 2.
+    expect(characterPortraitUrl(17, 1)).toBe(
+      'https://sg-tools-cdn.blablalink.com/wv-33/se-65/b50050b2bce376de4f6273ce3665985e.png'
     );
   });
 });
