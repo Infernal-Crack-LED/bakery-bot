@@ -1,8 +1,17 @@
 import { db, nikkeCharacters, type NikkeCharacter } from '@app/db';
 import { asc, eq, ilike } from 'drizzle-orm';
-import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import {
+  AttachmentBuilder,
+  EmbedBuilder,
+  MessageFlags,
+  SlashCommandBuilder,
+} from 'discord.js';
 import type { Command } from '../../types.js';
 import { renderProfile } from '../../lib/nikke/icons.js';
+import {
+  PORTRAIT_ATTACHMENT_NAME,
+  fetchPortraitThumbnail,
+} from '../../lib/nikke/portrait.js';
 
 /**
  * /nikke <name> — look up a character's Prydwen tiers, Nikke Synergy arena
@@ -77,10 +86,18 @@ export function formatBurstGen(value: string): string {
   return render((m?.[1] ?? value).trim(), m?.[2]?.trim());
 }
 
-export function buildEmbed(c: NikkeCharacter): EmbedBuilder {
+/**
+ * Build the character embed. `thumbnail` defaults to the stored portrait URL
+ * (hot-linked); the command overrides it with an `attachment://…` url when it
+ * has cropped the portrait into an attached square.
+ */
+export function buildEmbed(
+  c: NikkeCharacter,
+  thumbnail: string | null = c.imageUrl ?? null
+): EmbedBuilder {
   const embed = new EmbedBuilder().setColor(0xf472b6).setTitle(c.name);
-  if (c.imageUrl) {
-    embed.setThumbnail(c.imageUrl);
+  if (thumbnail) {
+    embed.setThumbnail(thumbnail);
   }
 
   // A row of profile icons (weapon · burst + CD · class · manufacturer ·
@@ -244,6 +261,25 @@ export const command: Command = {
       return;
     }
 
-    await interaction.reply({ embeds: [buildEmbed(character)] });
+    // Defer: we may fetch + crop the portrait (network I/O) before replying.
+    await interaction.deferReply();
+
+    // Crop the stored portrait into a 1:1 face box and attach it; on any failure
+    // fall back to the plain embed (hot-linked portrait, or none).
+    const cropped = character.imageUrl
+      ? await fetchPortraitThumbnail(character.imageUrl)
+      : null;
+    if (cropped) {
+      await interaction.editReply({
+        embeds: [
+          buildEmbed(character, `attachment://${PORTRAIT_ATTACHMENT_NAME}`),
+        ],
+        files: [
+          new AttachmentBuilder(cropped, { name: PORTRAIT_ATTACHMENT_NAME }),
+        ],
+      });
+    } else {
+      await interaction.editReply({ embeds: [buildEmbed(character)] });
+    }
   },
 };
