@@ -187,9 +187,9 @@ export interface CharacterAttributes {
   coreAttackMultiplier?: number; // percent, e.g. 200
   ammo?: number; // magazine size
   reloadSeconds?: number; // in-game reload stat in seconds, e.g. 2.5
-  skill1En?: string; // English skill descriptions (multi-line)
-  skill2En?: string;
-  burstSkillEn?: string; // includes a "Cooldown: <n> s" first line
+  // NOTE: skill prose is NO LONGER carried here. Skill text + per-level
+  // coefficients now come from blablalink roledata and live in the
+  // `skillDescriptions` / `skillLevels` columns below (single source of truth).
 }
 
 /**
@@ -223,6 +223,277 @@ export interface BaseStats {
   core: { atk: number; hp: number; def: number };
 }
 
+/**
+ * Per-level skill-coefficient arrays, sourced from blablalink roledata alongside
+ * `baseStats` (see apps/bot/src/lib/nikke/blablalink.ts). Each inner array is one
+ * placeholder's value across synchro levels 1..10 (index = level−1). The order of
+ * arrays matches the order of `{description_value_NN}` placeholders in the raw
+ * template, so `skill1[k]` is the array for `{description_value_(k+1)}`. The sim
+ * reads these to substitute lower-level skill magnitudes; it never scales the
+ * constant duration arrays (e.g. `[10,10,…]`), which are kept so indices line up.
+ */
+export interface SkillLevels {
+  skill1: number[][]; // from skill1_detail
+  skill2: number[][]; // from skill2_detail
+  burst: number[][]; // from ulti_skill_detail
+}
+
+/**
+ * Skill prose (English), resolved from the same roledata skill-detail blocks with
+ * every `{description_value_NN}` placeholder filled in at MAX LEVEL (index 9) and
+ * blablalink's markup tags stripped. Resolving at level 10 keeps these numbers
+ * equal to `skillLevels[*][*][9]` by construction, which is what the sim's
+ * level-scaling matcher depends on. Supersedes Synergy's old skill_*_en prose.
+ */
+export interface SkillDescriptions {
+  skill1: string; // from skill1_detail
+  skill2: string; // from skill2_detail
+  burst: string; // from ulti_skill_detail
+}
+
+// ─── blablalink roledata snapshot (verbatim game-source fields) ─────────────
+// The columns below store curated fields straight from blablalink's roledata —
+// the game's OWN data. Because they come from the source, they SUPERSEDE the
+// values distilled from Synergy/Prydwen/the sheet (which overlap: rarity, class,
+// element, manufacturer, crit, dupe/core scaling, burst tier, skill text).
+//
+// NOTE on naming: unlike the rest of the schema, these interfaces keep
+// blablalink's raw snake_case field names verbatim (and its raw integer scaling,
+// e.g. critical_ratio 1500 = 15%). That's deliberate — they're a faithful
+// snapshot of the source, so a field maps 1:1 and the projector is a plain pick.
+// TODO(source-dedup): once consumers read these, strip the now-redundant fields
+// from the non-blablalink sources (see the sync + memory note).
+
+/** blablalink `shot_detail` — the weapon/firing model (timing, ammo, charge). */
+export interface RoleShotDetail {
+  id: number;
+  name_localkey: string;
+  description_localkey: string;
+  camera_work: string;
+  weapon_type: string; // "SR" | "AR" | "SG" | "MG" | "RL" | "SMG"
+  attack_type: string;
+  counter_enermy: string; // (blablalink's spelling)
+  prefer_target: string;
+  prefer_target_condition: string;
+  shot_timing: string;
+  fire_type: string;
+  input_type: string;
+  is_targeting: boolean;
+  damage: number; // ×100 (6904 = 69.04% of ATK per shot)
+  shot_count: number;
+  muzzle_count: number;
+  multi_target_count: number;
+  center_shot_count: number;
+  max_ammo: number;
+  maintain_fire_stance: number;
+  uptype_fire_timing: number;
+  reload_time: number;
+  reload_bullet: number;
+  reload_start_ammo: number;
+  rate_of_fire_reset_time: number;
+  rate_of_fire: number;
+  end_rate_of_fire: number;
+  rate_of_fire_change_pershot: number;
+  burst_energy_pershot: number;
+  target_burst_energy_pershot: number;
+  spot_first_delay: number;
+  spot_last_delay: number;
+  start_accuracy_circle_scale: number;
+  end_accuracy_circle_scale: number;
+  accuracy_change_pershot: number;
+  accuracy_change_speed: number;
+  auto_start_accuracy_circle_scale: number;
+  auto_end_accuracy_circle_scale: number;
+  auto_accuracy_change_pershot: number;
+  auto_accuracy_change_speed: number;
+  zoom_rate: number;
+  multi_aim_range: number;
+  spot_projectile_speed: number;
+  charge_time: number; // ×100 (100 = 1.00 sec)
+  full_charge_damage: number; // ×100 (25000 = 250%)
+  full_charge_burst_energy: number;
+  spot_radius_object: number;
+  spot_radius: number;
+  spot_explosion_range: number;
+  core_damage_rate: number; // ×100 (20000 = 200%)
+  penetration: number;
+  use_function_id_list: number[];
+  hurt_function_id_list: number[];
+  shake_id: number;
+  ShakeType: string;
+  ShakeWeight: number;
+}
+
+/** One entry of blablalink `element_details`. */
+export interface RoleElementDetail {
+  id: number;
+  element: string; // "Water" | "Fire" | "Wind" | "Electric" | "Iron"
+  group_id: number;
+  weak_element_id: number;
+  element_name_localekey: string; // (blablalink's spelling)
+  element_code_name_localekey: string;
+  element_desc_localekey: string;
+  element_icon: string;
+}
+
+/** blablalink `piece_detail` — the Limit-Break "Spare Body" item. */
+export interface RolePieceDetail {
+  id: number;
+  inventory_filter: string[];
+  order: number;
+  name_localkey: string;
+  description_localkey: string;
+  resource_id: number;
+  item_type: string;
+  item_sub_type: string;
+  item_rare: string;
+  corporation: string;
+  class: string;
+  use_type: string;
+  use_id: number;
+  use_value: number;
+  use_limit_count: boolean;
+  stack_max: number;
+}
+
+/** One placeholder's per-level values inside a skill-detail's value list. */
+export interface RoleSkillValueEntry {
+  description_value?: string[];
+}
+
+/** blablalink `skill1_detail` / `skill2_detail` — a passive skill block. */
+export interface RoleSkillDetail {
+  id: number;
+  group_id: number;
+  skill_level: number;
+  next_level_id: number;
+  level_up_cost_id: number;
+  icon: string;
+  name_localkey: string;
+  description_localkey: string;
+  info_description_localkey: string;
+  description_value_list: RoleSkillValueEntry[];
+}
+
+/** blablalink `ulti_skill_detail` — the burst skill block (richer than passives). */
+export interface RoleUltiSkillDetail {
+  id: number;
+  skill_cooltime: number;
+  attack_type: string;
+  counter_type: string;
+  prefer_target: string;
+  prefer_target_condition: string;
+  skill_type: string;
+  skill_value_data: Array<{ skill_value_type: string; skill_value: number }>;
+  duration_type: string;
+  duration_value: number;
+  before_use_function_id_list: number[];
+  before_hurt_function_id_list: number[];
+  after_use_function_id_list: number[];
+  after_hurt_function_id_list: number[];
+  resource_name: string;
+  icon: string;
+  shake_id: number;
+  group_id: number;
+  skill_level: number;
+  next_level_id: number;
+  level_up_cost_id: number;
+  name_localkey: string;
+  description_localkey: string;
+  info_description_localkey: string;
+  description_value_list: RoleSkillValueEntry[];
+  skill_cooltime_list: number[];
+}
+
+/** blablalink `stat_enhance_detail` — per-Limit-Break + per-Core stat scaling. */
+export interface RoleStatEnhanceDetail {
+  id: number;
+  grade_ratio: number;
+  grade_hp: number;
+  grade_attack: number;
+  grade_defence: number;
+  grade_energy_resist: number;
+  grade_metal_resist: number;
+  grade_bio_resist: number;
+  core_hp: number;
+  core_attack: number;
+  core_defence: number;
+  core_energy_resist: number;
+  core_metal_resist: number;
+  core_bio_resist: number;
+}
+
+// ── The 7 grouped columns (see the column definitions on nikke_characters) ──
+// Fields are optional: a column is null until the roledata fetch runs, and a
+// partial/older feed may omit a field. Consumers should null-check.
+
+/** `role_weapon`: firing model + the range window bonus damage applies in. */
+export interface RoleWeapon {
+  shot_id?: number;
+  bonusrange_min?: number;
+  bonusrange_max?: number;
+  shot_detail?: RoleShotDetail;
+}
+
+/** `role_burst_meta`: burst-gauge behaviour (tier, step change, delay, window). */
+export interface RoleBurstMeta {
+  use_burst_skill?: string; // "Step1" | "Step2" | "Step3" (= Burst I/II/III)
+  change_burst_step?: string; // e.g. "StepFull"
+  burst_apply_delay?: number;
+  burst_duration?: number;
+}
+
+/** `role_skill_details`: the three full skill blocks + their id/table refs. */
+export interface RoleSkillDetails {
+  ulti_skill_id?: number;
+  skill1_id?: number;
+  skill1_table?: string;
+  skill2_id?: number;
+  skill2_table?: string;
+  skill1_detail?: RoleSkillDetail;
+  skill2_detail?: RoleSkillDetail;
+  ulti_skill_detail?: RoleUltiSkillDetail;
+}
+
+/** `role_stat_scaling`: dupe/core scaling table + its id refs. */
+export interface RoleStatScaling {
+  grade_core_id?: number;
+  grow_grade?: number;
+  stat_enhance_id?: number;
+  stat_enhance_detail?: RoleStatEnhanceDetail;
+}
+
+/** `role_element`: the unit's element id(s) + the element detail block(s). */
+export interface RoleElementInfo {
+  element_id?: number[];
+  element_details?: RoleElementDetail[];
+}
+
+/** `role_piece`: the Limit-Break Spare-Body item. */
+export interface RolePiece {
+  piece_id?: number;
+  piece_detail?: RolePieceDetail;
+}
+
+/** `role_meta`: identity + classification scalars (verbatim from roledata). */
+export interface RoleMeta {
+  id?: number; // blablalink internal id (e.g. 235201), NOT our slug
+  name_localkey?: string;
+  resource_id?: number;
+  name_code?: number;
+  order?: number; // roster display order
+  original_rare?: string; // "SSR" | "SR" | "R"
+  class?: string; // "Attacker" | "Supporter" | "Defender"
+  corporation?: string; // "ELYSION" | "MISSILIS" | "TETRA" | "PILGRIM" | "ABNORMAL"
+  critical_ratio?: number; // ×100 (1500 = 15%)
+  critical_damage?: number; // ×100 (15000 = 150%)
+  eff_category_type?: string;
+  eff_category_value?: number;
+  category_type_1?: string;
+  category_type_2?: string;
+  category_type_3?: string;
+}
+
 /** Canonical character registry — one row per NIKKE, keyed by a stable slug. */
 export const nikkeCharacters = pgTable('nikke_characters', {
   id: text('id').primaryKey(), // canonical slug, e.g. "anis-star"
@@ -253,6 +524,23 @@ export const nikkeCharacters = pgTable('nikke_characters', {
   // Intrinsic base stats + dupe scaling from blablalink; fetched once (null until
   // the sync first matches this character to its blablalink resource_id).
   baseStats: jsonb('base_stats').$type<BaseStats>(),
+  // Per-level skill coefficients + resolved skill prose, both from the SAME
+  // blablalink roledata fetch that fills base_stats. blablalink is the single
+  // source of truth for skills (skill text no longer comes from Synergy). Null
+  // until that character's roledata has been fetched.
+  skillLevels: jsonb('skill_levels').$type<SkillLevels>(),
+  skillDescriptions: jsonb('skill_descriptions').$type<SkillDescriptions>(),
+  // Curated blablalink roledata snapshot, grouped by concern (see the Role*
+  // interfaces above). Straight from the game's data, so these SUPERSEDE the
+  // overlapping Synergy/Prydwen/sheet-derived columns. All populated in the same
+  // one-time roledata fetch as base_stats; null until that fetch runs.
+  roleWeapon: jsonb('role_weapon').$type<RoleWeapon>(),
+  roleBurstMeta: jsonb('role_burst_meta').$type<RoleBurstMeta>(),
+  roleSkillDetails: jsonb('role_skill_details').$type<RoleSkillDetails>(),
+  roleStatScaling: jsonb('role_stat_scaling').$type<RoleStatScaling>(),
+  roleElement: jsonb('role_element').$type<RoleElementInfo>(),
+  rolePiece: jsonb('role_piece').$type<RolePiece>(),
+  roleMeta: jsonb('role_meta').$type<RoleMeta>(),
   updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
     .defaultNow(),

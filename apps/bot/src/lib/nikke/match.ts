@@ -136,9 +136,6 @@ export function buildCharacters(inputs: SyncInputs): BuildResult {
       coreAttackMultiplier: attr.coreAttackMultiplier,
       ammo: attr.ammo,
       reloadSeconds: attr.reloadSeconds,
-      skill1En: attr.skill1En,
-      skill2En: attr.skill2En,
-      burstSkillEn: attr.burstSkillEn,
     };
   }
 

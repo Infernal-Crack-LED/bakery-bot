@@ -47,6 +47,31 @@ export const BLABLALINK_RESOURCE_OVERRIDES: Record<string, number> = {
   'sakura-suzuhara': 836, // blablalink "Sakura" (WILLE medical officer)
 };
 
+/**
+ * Treasure (favorite-item) skill overrides: our canonical id → the Nikke Synergy
+ * `attack_damage_characters.id` of that unit's **Treasure** entry (the 宝 variant).
+ *
+ * blablalink roledata is keyed by `resource_id` and only carries the PLAIN kit,
+ * but for these units the Treasure kit is the one players actually run — so their
+ * blablalink-derived skill text describes the wrong kit. For these four we ignore
+ * blablalink's skill prose and take the Treasure skill text from Nikke Synergy
+ * instead (see syncTreasureSkills in sync.ts). Synergy has no per-level
+ * coefficients, so these units get NO `skill_levels` until we find a
+ * level-sensitive Treasure source — see TODO in sync.ts.
+ *
+ * (Mirrors the sim's TREASURE_SYNERGY_IDS. `helm` already maps to her Treasure
+ * entry by name, so she isn't listed here.)
+ *
+ *   key   = canonical character id (slug)
+ *   value = Nikke Synergy attack_damage_characters id of the Treasure entry
+ */
+export const TREASURE_SYNERGY_IDS: Record<string, number> = {
+  privaty: 198,
+  tove: 172,
+  zwei: 199,
+  moran: 200,
+};
+
 export const PRYDWEN_SLUG_OVERRIDES: Record<string, string> = {
   // Alt/skin units: reversed word order on Prydwen.
   'anis-sparkling-summer': 'sparkling-summer-anis',

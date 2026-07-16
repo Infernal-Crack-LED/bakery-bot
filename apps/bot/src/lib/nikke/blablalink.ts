@@ -17,7 +17,25 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { BaseStats, NikkeLevelMultiplier } from '@app/db';
+import type {
+  BaseStats,
+  NikkeLevelMultiplier,
+  RoleBurstMeta,
+  RoleElementDetail,
+  RoleElementInfo,
+  RoleMeta,
+  RolePiece,
+  RolePieceDetail,
+  RoleShotDetail,
+  RoleSkillDetail,
+  RoleSkillDetails,
+  RoleStatEnhanceDetail,
+  RoleStatScaling,
+  RoleUltiSkillDetail,
+  RoleWeapon,
+  SkillDescriptions,
+  SkillLevels,
+} from '@app/db';
 
 type Fetch = typeof fetch;
 
@@ -116,7 +134,27 @@ export interface BlablalinkRosterEntry {
   name: string; // English display name, e.g. "Anis: Star"
 }
 
-/** Minimal shape of a `/roledata/<id>-v2-<locale>.json` payload. */
+/**
+ * One skill-detail block from roledata (`skill1_detail` / `skill2_detail` /
+ * `ulti_skill_detail`). `description_localkey` is — despite the name — the actual
+ * localized template text (LOCALE `en`), with `{description_value_NN}`
+ * placeholders and inline markup. `description_value_list[NN-1].description_value`
+ * is that placeholder's per-level values (a length-10 array, level 1..10). Some
+ * list entries are padding (no length-10 `description_value`) — parsers skip them.
+ */
+export interface SkillDetail {
+  description_localkey?: string;
+  description_value_list?: Array<{ description_value?: unknown[] }>;
+}
+
+/**
+ * Shape of a `/roledata/<id>-v2-<locale>.json` payload — the fields we read.
+ *
+ * The core stat fields (crit, level curves, stat_enhance_detail) drive
+ * parseBaseStats/deriveLevelMultiplier. The rest are the curated snapshot fields
+ * projected into the `role_*` columns (see parseRoleColumns); they're marked
+ * optional so a missing/partial feed degrades gracefully rather than throwing.
+ */
 export interface RoleData {
   resource_id: number;
   name_localkey: string;
@@ -125,6 +163,9 @@ export interface RoleData {
   character_level_attack_list: number[];
   character_level_hp_list: number[];
   character_level_defence_list: number[];
+  // Core dupe/core scaling used by parseBaseStats. This is the same object the
+  // snapshot exposes fully as RoleStatEnhanceDetail (with the resist fields);
+  // parseRoleColumns widens it for the role_stat_scaling column.
   stat_enhance_detail: {
     grade_ratio: number;
     grade_attack: number;
@@ -134,6 +175,43 @@ export interface RoleData {
     core_hp: number;
     core_defence: number;
   };
+  // Skill blocks: two passives (skill1/skill2) + the burst (ulti). Optional
+  // because the parsers tolerate a missing/partial feed (older cached roledata).
+  skill1_detail?: SkillDetail;
+  skill2_detail?: SkillDetail;
+  ulti_skill_detail?: SkillDetail;
+  // ── Snapshot fields (projected verbatim into the role_* columns) ──
+  id?: number;
+  name_code?: number;
+  order?: number;
+  original_rare?: string;
+  grade_core_id?: number;
+  grow_grade?: number;
+  stat_enhance_id?: number;
+  class?: string;
+  element_id?: number[];
+  shot_id?: number;
+  bonusrange_min?: number;
+  bonusrange_max?: number;
+  use_burst_skill?: string;
+  change_burst_step?: string;
+  burst_apply_delay?: number;
+  burst_duration?: number;
+  ulti_skill_id?: number;
+  skill1_id?: number;
+  skill1_table?: string;
+  skill2_id?: number;
+  skill2_table?: string;
+  eff_category_type?: string;
+  eff_category_value?: number;
+  category_type_1?: string;
+  category_type_2?: string;
+  category_type_3?: string;
+  corporation?: string;
+  piece_id?: number;
+  element_details?: RoleElementDetail[];
+  piece_detail?: RolePieceDetail;
+  shot_detail?: RoleShotDetail;
 }
 
 // ─── Pure parsers ───────────────────────────────────────────────────────────
@@ -182,6 +260,155 @@ export function deriveLevelMultiplier(role: RoleData): NikkeLevelMultiplier {
     attack: ratios(role.character_level_attack_list, 'attack'),
     hp: ratios(role.character_level_hp_list, 'hp'),
     def: ratios(role.character_level_defence_list, 'defence'),
+  };
+}
+
+// ─── Skill parsers (coefficient arrays + resolved prose) ────────────────────
+// Both come from the same roledata skill-detail blocks. The sim reads them as a
+// single source: the prose it parses (resolved at level 10) carries exactly the
+// level-10 entries of the arrays it scales against, so the two can't drift.
+
+/** Max synchro level for a skill; the index the descriptions resolve against. */
+const SKILL_LEVEL_INDEX = 9;
+
+/**
+ * The per-level coefficient arrays for one skill: every list entry whose
+ * `description_value` is a length-10 array of finite numbers, kept in list order
+ * (order = placeholder order, which the sim relies on — do not sort or dedupe).
+ * Constant arrays (e.g. a `[10,10,…]` duration) are kept too so indices line up.
+ */
+export function extractSkillArrays(detail?: SkillDetail): number[][] {
+  const out: number[][] = [];
+  for (const entry of detail?.description_value_list ?? []) {
+    const vals = entry?.description_value;
+    if (Array.isArray(vals) && vals.length === 10) {
+      const nums = vals.map(Number);
+      if (nums.every(Number.isFinite)) {
+        out.push(nums);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Resolve a skill's template to plain English prose at MAX LEVEL (index 9):
+ * fill each `{description_value_NN}` with `list[NN-1].description_value[9]`, then
+ * strip blablalink's markup tags (`<color=…>`, `<word_group=…>`, and any other
+ * tag type) keeping the inner text. Resolving at index 9 keeps every number here
+ * equal to the level-10 entry of the matching `extractSkillArrays` array.
+ */
+export function resolveSkillDescription(detail?: SkillDetail): string {
+  const arrays = detail?.description_value_list ?? [];
+  let text = detail?.description_localkey ?? '';
+  // {description_value_03} → arrays[2].description_value[9]
+  text = text.replace(/\{description_value_(\d+)\}/g, (whole, n: string) => {
+    const entry = arrays[Number(n) - 1]?.description_value;
+    const value = entry?.[SKILL_LEVEL_INDEX];
+    return value == null ? whole : String(value);
+  });
+  // Strip glossary/markup tags but keep their inner text. The named tags are the
+  // ones seen in the feed; the final sweep catches any other tag type (<size>,
+  // <b>, …) the same way rather than leaving a raw `<…>` in the stored string.
+  text = text.replace(/<color=[^>]*>/g, '').replace(/<\/color>/g, '');
+  text = text.replace(/<word_group=[^>]*>/g, '').replace(/<\/word_group>/g, '');
+  text = text.replace(/<\/?[^>]+>/g, '');
+  return text.trim();
+}
+
+/** All three skills' per-level coefficient arrays, in the sim's expected shape. */
+export function parseSkillLevels(role: RoleData): SkillLevels {
+  return {
+    skill1: extractSkillArrays(role.skill1_detail),
+    skill2: extractSkillArrays(role.skill2_detail),
+    burst: extractSkillArrays(role.ulti_skill_detail),
+  };
+}
+
+/** All three skills' English prose, resolved at max level + markup-stripped. */
+export function parseSkillDescriptions(role: RoleData): SkillDescriptions {
+  return {
+    skill1: resolveSkillDescription(role.skill1_detail),
+    skill2: resolveSkillDescription(role.skill2_detail),
+    burst: resolveSkillDescription(role.ulti_skill_detail),
+  };
+}
+
+// ─── Roledata snapshot projection (the 7 role_* columns) ────────────────────
+// Straight-from-source fields grouped by concern (see the Role* interfaces in
+// @app/db). This is a plain pick — the field names are kept verbatim. A few
+// objects (stat_enhance_detail, the skill blocks) are typed more narrowly on
+// RoleData for the base-stats/skill parsers; they carry the full source shape at
+// runtime, so we widen them here to the snapshot interfaces.
+
+/** The 7 grouped role_* column values, keyed by their nikke_characters columns. */
+export interface RoleColumns {
+  roleWeapon: RoleWeapon;
+  roleBurstMeta: RoleBurstMeta;
+  roleSkillDetails: RoleSkillDetails;
+  roleStatScaling: RoleStatScaling;
+  roleElement: RoleElementInfo;
+  rolePiece: RolePiece;
+  roleMeta: RoleMeta;
+}
+
+/** Project a roledata payload into the 7 grouped snapshot columns. */
+export function parseRoleColumns(role: RoleData): RoleColumns {
+  return {
+    roleWeapon: {
+      shot_id: role.shot_id,
+      bonusrange_min: role.bonusrange_min,
+      bonusrange_max: role.bonusrange_max,
+      shot_detail: role.shot_detail,
+    },
+    roleBurstMeta: {
+      use_burst_skill: role.use_burst_skill,
+      change_burst_step: role.change_burst_step,
+      burst_apply_delay: role.burst_apply_delay,
+      burst_duration: role.burst_duration,
+    },
+    roleSkillDetails: {
+      ulti_skill_id: role.ulti_skill_id,
+      skill1_id: role.skill1_id,
+      skill1_table: role.skill1_table,
+      skill2_id: role.skill2_id,
+      skill2_table: role.skill2_table,
+      skill1_detail: role.skill1_detail as RoleSkillDetail | undefined,
+      skill2_detail: role.skill2_detail as RoleSkillDetail | undefined,
+      ulti_skill_detail: role.ulti_skill_detail as
+        RoleUltiSkillDetail | undefined,
+    },
+    roleStatScaling: {
+      grade_core_id: role.grade_core_id,
+      grow_grade: role.grow_grade,
+      stat_enhance_id: role.stat_enhance_id,
+      stat_enhance_detail: role.stat_enhance_detail as RoleStatEnhanceDetail,
+    },
+    roleElement: {
+      element_id: role.element_id,
+      element_details: role.element_details,
+    },
+    rolePiece: {
+      piece_id: role.piece_id,
+      piece_detail: role.piece_detail,
+    },
+    roleMeta: {
+      id: role.id,
+      name_localkey: role.name_localkey,
+      resource_id: role.resource_id,
+      name_code: role.name_code,
+      order: role.order,
+      original_rare: role.original_rare,
+      class: role.class,
+      corporation: role.corporation,
+      critical_ratio: role.critical_ratio,
+      critical_damage: role.critical_damage,
+      eff_category_type: role.eff_category_type,
+      eff_category_value: role.eff_category_value,
+      category_type_1: role.category_type_1,
+      category_type_2: role.category_type_2,
+      category_type_3: role.category_type_3,
+    },
   };
 }
 
