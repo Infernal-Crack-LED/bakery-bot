@@ -55,9 +55,8 @@ export interface SynergyAttributes {
   coreAttackMultiplier?: number; // percent, e.g. 200
   ammo?: number; // magazine size
   reloadSeconds?: number; // in-game reload stat (from reload_original)
-  skill1En?: string; // English skill descriptions
-  skill2En?: string;
-  burstSkillEn?: string; // includes a "Cooldown: <n> s" first line
+  // Skill prose is intentionally NOT read from Synergy anymore — blablalink
+  // roledata is the single source of truth for skill text + coefficients.
 }
 
 // Synergy stores these header fields as Japanese labels / codes; translate them.
@@ -102,9 +101,6 @@ interface AttackDamageRow {
   // but is frames including ~21 frames of animation overhead — not the stat
   // shown in game.)
   reload_original: string | null;
-  skill_1_en: string | null;
-  skill_2_en: string | null;
-  burst_skill_en: string | null;
 }
 
 /** Translate one `attack_damage_characters` row into English attributes. */
@@ -131,9 +127,6 @@ export function toAttributes(row: AttackDamageRow): SynergyAttributes {
     coreAttackMultiplier: row.core_attack_multiplier ?? undefined,
     ammo: row.ammo ?? undefined,
     reloadSeconds: parseReloadSeconds(row.reload_original),
-    skill1En: cleanSkillText(row.skill_1_en),
-    skill2En: cleanSkillText(row.skill_2_en),
-    burstSkillEn: cleanSkillText(row.burst_skill_en),
   };
 }
 
@@ -278,10 +271,50 @@ export async function fetchSynergyAttributes(
   fetchImpl: Fetch = fetch
 ): Promise<SynergyAttributes[]> {
   const rows = await getJson<AttackDamageRow[]>(
-    `${API}/attack_damage_characters?select=name,weapon_type,burst_type,burst_cooltime,class_type,company,code_type,release_date,normal_attack_multiplier,core_attack_multiplier,ammo,reload_original,skill_1_en,skill_2_en,burst_skill_en`,
+    `${API}/attack_damage_characters?select=name,weapon_type,burst_type,burst_cooltime,class_type,company,code_type,release_date,normal_attack_multiplier,core_attack_multiplier,ammo,reload_original`,
     fetchImpl
   );
   return rows.map(toAttributes);
+}
+
+/** Treasure-kit skill prose for one unit (English), keyed by Synergy row id. */
+export interface TreasureSkills {
+  id: number;
+  skill1?: string;
+  skill2?: string;
+  burst?: string; // includes a "Cooldown: <n> s" first line
+}
+
+/**
+ * Skill prose for specific `attack_damage_characters` rows, fetched by id. Used
+ * ONLY for the Treasure-variant override (see TREASURE_SYNERGY_IDS): blablalink's
+ * roledata carries the plain kit, so for those units we take the Treasure kit's
+ * skill text from Synergy instead. Returns one entry per id that exists.
+ */
+export async function fetchSynergyTreasureSkills(
+  ids: number[],
+  fetchImpl: Fetch = fetch
+): Promise<TreasureSkills[]> {
+  if (ids.length === 0) {
+    return [];
+  }
+  const rows = await getJson<
+    Array<{
+      id: number;
+      skill_1_en: string | null;
+      skill_2_en: string | null;
+      burst_skill_en: string | null;
+    }>
+  >(
+    `${API}/attack_damage_characters?id=in.(${ids.join(',')})&select=id,skill_1_en,skill_2_en,burst_skill_en`,
+    fetchImpl
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    skill1: cleanSkillText(r.skill_1_en),
+    skill2: cleanSkillText(r.skill_2_en),
+    burst: cleanSkillText(r.burst_skill_en),
+  }));
 }
 
 /**

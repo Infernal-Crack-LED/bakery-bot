@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  cleanSkillText,
+  fetchSynergyTreasureSkills,
   parseReloadSeconds,
   parseTranslationDictionary,
   synergyCharacterUrl,
@@ -50,10 +52,6 @@ describe('toAttributes', () => {
       core_attack_multiplier: 200,
       ammo: 60,
       reload_original: '2.50', // in-game stat, stored as a string
-      skill_1_en:
-        '■ Activates when entering Full Burst.\r\nATK ▲ 5% for 10 sec.',
-      skill_2_en: '',
-      burst_skill_en: 'Cooldown: 40 s\n\n■ Affects all allies.\r\nDEF ▲ 10%.',
     });
     expect(attr).toEqual({
       name: 'アークブラック',
@@ -68,9 +66,7 @@ describe('toAttributes', () => {
       coreAttackMultiplier: 200,
       ammo: 60,
       reloadSeconds: 2.5,
-      // CRLF normalised to LF; the empty skill_2_en is omitted
-      skill1En: '■ Activates when entering Full Burst.\nATK ▲ 5% for 10 sec.',
-      burstSkillEn: 'Cooldown: 40 s\n\n■ Affects all allies.\nDEF ▲ 10%.',
+      // Skill prose is no longer sourced from Synergy (see blablalink roledata).
     });
   });
 
@@ -88,9 +84,6 @@ describe('toAttributes', () => {
       core_attack_multiplier: null,
       ammo: null,
       reload_original: null,
-      skill_1_en: null,
-      skill_2_en: null,
-      burst_skill_en: null,
     });
     expect(attr.burst).toBe('Λ');
     expect(attr.burstCooldown).toBeUndefined();
@@ -102,9 +95,6 @@ describe('toAttributes', () => {
     expect(attr.coreAttackMultiplier).toBeUndefined();
     expect(attr.ammo).toBeUndefined();
     expect(attr.reloadSeconds).toBeUndefined();
-    expect(attr.skill1En).toBeUndefined();
-    expect(attr.skill2En).toBeUndefined();
-    expect(attr.burstSkillEn).toBeUndefined();
   });
 });
 
@@ -116,6 +106,58 @@ describe('parseReloadSeconds', () => {
     expect(parseReloadSeconds('')).toBeUndefined();
     expect(parseReloadSeconds('0')).toBeUndefined();
     expect(parseReloadSeconds('n/a')).toBeUndefined();
+  });
+});
+
+describe('cleanSkillText', () => {
+  it('normalises CRLF, trims, and maps blank/null to undefined', () => {
+    expect(cleanSkillText('a\r\nb  ')).toBe('a\nb');
+    expect(cleanSkillText('   ')).toBeUndefined();
+    expect(cleanSkillText(null)).toBeUndefined();
+  });
+});
+
+describe('fetchSynergyTreasureSkills', () => {
+  it('queries by id and returns cleaned skill text per row', async () => {
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(
+        Response.json([
+          {
+            id: 200,
+            skill_1_en: '■ Treasure passive.\r\nATK ▲ 12%.',
+            skill_2_en: '',
+            burst_skill_en: 'Cooldown: 40 s\n\n■ Nuke.',
+          },
+        ])
+      )
+    );
+
+    const out = await fetchSynergyTreasureSkills(
+      [200, 198],
+      fetchImpl as never
+    );
+
+    expect(out).toEqual([
+      {
+        id: 200,
+        skill1: '■ Treasure passive.\nATK ▲ 12%.',
+        skill2: undefined, // blank → undefined
+        burst: 'Cooldown: 40 s\n\n■ Nuke.',
+      },
+    ]);
+    // Filters by the id list via PostgREST in.() syntax.
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining('attack_damage_characters?id=in.(200,198)'),
+      expect.anything()
+    );
+  });
+
+  it('short-circuits (no request) when given no ids', async () => {
+    const fetchImpl = vi.fn();
+    expect(await fetchSynergyTreasureSkills([], fetchImpl as never)).toEqual(
+      []
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 

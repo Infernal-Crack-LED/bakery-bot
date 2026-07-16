@@ -18,18 +18,22 @@ import {
   nikkeSyncRuns,
   NIKKE_LEVEL_MULTIPLIER_KEY,
 } from '@app/db';
-import { eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import {
   characterPortraitUrl,
   deriveLevelMultiplier,
   fetchBlablalinkRoster,
   fetchRoleData,
   parseBaseStats,
+  parseRoleColumns,
+  parseSkillDescriptions,
+  parseSkillLevels,
 } from './blablalink.js';
 import { buildCharacters, normalizeName } from './match.js';
 import {
   BLABLALINK_RESOURCE_OVERRIDES,
   PRYDWEN_SLUG_OVERRIDES,
+  TREASURE_SYNERGY_IDS,
 } from './overrides.js';
 import { PRYDWEN_TIERS } from './prydwen-data.js';
 import { prydwenUrl, resolvePrydwenSlug } from './prydwen.js';
@@ -44,6 +48,7 @@ import {
   fetchSynergyAttributes,
   fetchSynergyCharacters,
   fetchSynergyDictionary,
+  fetchSynergyTreasureSkills,
   type SynergyArenaStat,
   type SynergyAttributes,
   type SynergyCharacter,
@@ -56,6 +61,8 @@ export interface SyncSummary {
   prydwenTiers: number;
   /** How many characters got their one-time base-stats fetch this run. */
   baseStatsFetched: number;
+  /** How many Treasure-variant units had their skill text overridden from Synergy. */
+  treasureSkills: number;
   /** How many characters had their blablalink portrait URL set/updated. */
   portraits: number;
   errors: string[];
@@ -69,18 +76,29 @@ interface BaseStatsResult {
 }
 
 /**
- * One-time base-stats backfill. Base stats never change for a released unit, so
- * we only touch blablalink for characters that don't have them yet: if none are
- * missing this is a no-op (zero network calls). Otherwise we pull the roster
- * once, match each missing character to its resource_id by normalized name, and
- * fetch + store that character's stats. The shared synchro-level multiplier is
- * written to `bot_meta` the first time we fetch any character.
+ * One-time roledata backfill (base stats + skills + the role_* snapshot). All
+ * are static for a released unit and come from the SAME blablalink roledata
+ * fetch, so we only touch blablalink for characters missing ANY of them: base
+ * stats, skill data, or the snapshot (each condition backfills rows synced
+ * before that field existed). If none are missing this is a no-op (zero network
+ * calls). Otherwise we pull the roster once, match each missing character to its
+ * resource_id by normalized name, and fetch + store that character's stats,
+ * per-level skill coefficients, resolved skill prose, and the grouped roledata
+ * snapshot. The shared synchro-level multiplier is written to `bot_meta` the
+ * first time we fetch any character.
  */
 async function syncBaseStats(): Promise<BaseStatsResult> {
   const missing = await db
     .select({ id: nikkeCharacters.id, name: nikkeCharacters.name })
     .from(nikkeCharacters)
-    .where(isNull(nikkeCharacters.baseStats));
+    .where(
+      or(
+        isNull(nikkeCharacters.baseStats),
+        isNull(nikkeCharacters.skillLevels),
+        // Backfill the roledata snapshot for rows synced before it existed.
+        isNull(nikkeCharacters.roleMeta)
+      )
+    );
   if (missing.length === 0) {
     return { fetched: 0, unmatched: [], errors: [] };
   }
@@ -119,7 +137,14 @@ async function syncBaseStats(): Promise<BaseStatsResult> {
       const role = await fetchRoleData(resourceId);
       await db
         .update(nikkeCharacters)
-        .set({ baseStats: parseBaseStats(role), updatedAt: sql`now()` })
+        .set({
+          baseStats: parseBaseStats(role),
+          skillLevels: parseSkillLevels(role),
+          skillDescriptions: parseSkillDescriptions(role),
+          // Curated blablalink roledata snapshot (the 7 role_* columns).
+          ...parseRoleColumns(role),
+          updatedAt: sql`now()`,
+        })
         .where(eq(nikkeCharacters.id, character.id));
       fetched += 1;
 
@@ -139,6 +164,55 @@ async function syncBaseStats(): Promise<BaseStatsResult> {
   }
 
   return { fetched, unmatched, errors };
+}
+
+/**
+ * Treasure-kit skill override. For the handful of units whose Treasure (宝,
+ * favorite-item) kit is the one players actually run, blablalink's roledata —
+ * keyed by resource_id — describes the PLAIN kit, so its skill prose is wrong.
+ * For these we replace `skill_descriptions` with the Treasure entry's skill text
+ * from Nikke Synergy (assumed accurate; verified manually) and clear
+ * `skill_levels`, because Synergy carries no per-level coefficients.
+ *
+ * Runs every sync (only a few units, one cheap request) so the override is
+ * self-healing and can't be clobbered by a later blablalink refetch. Skipping a
+ * unit that isn't in the DB yet is fine — the next run picks it up.
+ *
+ * TODO(skills): find a LEVEL-SENSITIVE source for Treasure kits so these units
+ * get real `skill_levels` (per-level arrays) like everyone else, instead of
+ * max-level-only Synergy prose. Until then the sim can't scale their skills
+ * below level 10. See TREASURE_SYNERGY_IDS in overrides.ts.
+ */
+async function syncTreasureSkills(): Promise<number> {
+  const slugById = new Map<number, string>(
+    Object.entries(TREASURE_SYNERGY_IDS).map(([slug, id]) => [id, slug])
+  );
+  const skills = await fetchSynergyTreasureSkills([...slugById.keys()]);
+
+  let updated = 0;
+  for (const s of skills) {
+    const slug = slugById.get(s.id);
+    if (!slug) {
+      continue;
+    }
+    const written = await db
+      .update(nikkeCharacters)
+      .set({
+        skillDescriptions: {
+          skill1: s.skill1 ?? '',
+          skill2: s.skill2 ?? '',
+          burst: s.burst ?? '',
+        },
+        // No per-level data from Synergy — clear it so a stale plain-kit array
+        // from blablalink can never be matched against the Treasure prose.
+        skillLevels: { skill1: [], skill2: [], burst: [] },
+        updatedAt: sql`now()`,
+      })
+      .where(eq(nikkeCharacters.id, slug))
+      .returning({ id: nikkeCharacters.id });
+    updated += written.length;
+  }
+  return updated;
 }
 
 /**
@@ -309,8 +383,9 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
       });
   }
 
-  // One-time base-stats backfill (blablalink). Runs AFTER the upsert so brand-new
-  // characters already have rows to fill. A failure here degrades to "partial".
+  // One-time roledata backfill — base stats + skills (blablalink). Runs AFTER the
+  // upsert so brand-new characters already have rows to fill. A failure here
+  // degrades the run to "partial".
   const baseStats = await guarded<BaseStatsResult>(
     'base-stats',
     syncBaseStats,
@@ -321,6 +396,15 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
     }
   );
   errors.push(...baseStats.errors);
+
+  // Treasure-kit skill override (Synergy). Runs AFTER the roledata backfill so it
+  // wins over blablalink's plain-kit skill text for those units. A failure here
+  // degrades the run to "partial" like any other source.
+  const treasureSkills = await guarded(
+    'treasure-skills',
+    syncTreasureSkills,
+    0
+  );
 
   // Derive high-res blablalink portraits from the resource_ids we now have. Runs
   // AFTER base stats so freshly-fetched resource_ids are included. Pure derivation
@@ -346,6 +430,7 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
         sheetRows: sheetPriority.length,
         prydwenTiers: prydwenMatched,
         baseStatsFetched: baseStats.fetched,
+        treasureSkills,
         portraits,
       },
       unmatched: { ...unmatched, baseStats: baseStats.unmatched },
@@ -359,6 +444,7 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
     dictionaryEntries: dictRows.length,
     prydwenTiers: prydwenMatched,
     baseStatsFetched: baseStats.fetched,
+    treasureSkills,
     portraits,
     errors,
     unmatched: {
