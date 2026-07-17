@@ -25,15 +25,16 @@ import {
   fetchBlablalinkRoster,
   fetchRoleData,
   parseBaseStats,
+  parseFavoriteItemSkills,
   parseRoleColumns,
   parseSkillDescriptions,
   parseSkillLevels,
 } from './blablalink.js';
+import { deriveTreasureItems } from './favoriteItems.js';
 import { buildCharacters, normalizeName } from './match.js';
 import {
   BLABLALINK_RESOURCE_OVERRIDES,
   PRYDWEN_SLUG_OVERRIDES,
-  TREASURE_SYNERGY_IDS,
 } from './overrides.js';
 import { PRYDWEN_TIERS } from './prydwen-data.js';
 import { prydwenUrl, resolvePrydwenSlug } from './prydwen.js';
@@ -48,7 +49,6 @@ import {
   fetchSynergyAttributes,
   fetchSynergyCharacters,
   fetchSynergyDictionary,
-  fetchSynergyTreasureSkills,
   type SynergyArenaStat,
   type SynergyAttributes,
   type SynergyCharacter,
@@ -61,8 +61,8 @@ export interface SyncSummary {
   prydwenTiers: number;
   /** How many characters got their one-time base-stats fetch this run. */
   baseStatsFetched: number;
-  /** How many Treasure-variant units had their skill text overridden from Synergy. */
-  treasureSkills: number;
+  /** How many Treasure units had their skills set from their Favorite Item this run. */
+  favoriteItemSkills: number;
   /** How many characters had their blablalink portrait URL set/updated. */
   portraits: number;
   errors: string[];
@@ -166,53 +166,98 @@ async function syncBaseStats(): Promise<BaseStatsResult> {
   return { fetched, unmatched, errors };
 }
 
-/**
- * Treasure-kit skill override. For the handful of units whose Treasure (宝,
- * favorite-item) kit is the one players actually run, blablalink's roledata —
- * keyed by resource_id — describes the PLAIN kit, so its skill prose is wrong.
- * For these we replace `skill_descriptions` with the Treasure entry's skill text
- * from Nikke Synergy (assumed accurate; verified manually) and clear
- * `skill_levels`, because Synergy carries no per-level coefficients.
- *
- * Runs every sync (only a few units, one cheap request) so the override is
- * self-healing and can't be clobbered by a later blablalink refetch. Skipping a
- * unit that isn't in the DB yet is fine — the next run picks it up.
- *
- * TODO(skills): find a LEVEL-SENSITIVE source for Treasure kits so these units
- * get real `skill_levels` (per-level arrays) like everyone else, instead of
- * max-level-only Synergy prose. Until then the sim can't scale their skills
- * below level 10. See TREASURE_SYNERGY_IDS in overrides.ts.
- */
-async function syncTreasureSkills(): Promise<number> {
-  const slugById = new Map<number, string>(
-    Object.entries(TREASURE_SYNERGY_IDS).map(([slug, id]) => [id, slug])
-  );
-  const skills = await fetchSynergyTreasureSkills([...slugById.keys()]);
+interface FavoriteItemResult {
+  fetched: number;
+  unmatched: string[];
+  errors: string[];
+}
 
-  let updated = 0;
-  for (const s of skills) {
-    const slug = slugById.get(s.id);
-    if (!slug) {
+/** A character row is a Treasure (Favorite-Item) unit if "treasure" shows up in
+ * its name, any alias, or its Prydwen slug (e.g. `helm-treasure`). Used only to
+ * bound the fetch-only-new check; the CDN derivation is the source of truth for
+ * which characters actually have a Treasure item. */
+function isTreasureUnit(row: {
+  name: string;
+  aliases: string[] | null;
+  prydwenSlug: string | null;
+}): boolean {
+  const hay = [row.name, ...(row.aliases ?? []), row.prydwenSlug ?? ''];
+  return hay.some((s) => /treasure/i.test(s));
+}
+
+/**
+ * Treasure-kit skills from each unit's blablalink Favorite Item — the
+ * LEVEL-SENSITIVE source the old Synergy override lacked. For Treasure units
+ * blablalink's roledata (keyed by resource_id) describes the PLAIN kit, so its
+ * skill data is wrong; we replace it with the Favorite Item's per-level skill
+ * blocks (folded into `skill_levels` / `skill_descriptions`) and stamp
+ * `favorite_item_id`.
+ *
+ * Source is the PUBLIC CDN (`deriveTreasureItems`): the SSR Favorite Item list
+ * matched to characters by `name_code`. No session/token needed and it covers
+ * every unit — unlike the per-account user API, whose `favorite_item_tid` is a
+ * skill-less placeholder doll for Treasures the account hasn't unlocked.
+ *
+ * Fetch-only-new: `isTreasureUnit` is only a cheap GATE — if no Treasure-looking
+ * unit is missing its `favorite_item_id`, the step makes ZERO network calls.
+ * When it does run, the fill is driven by the authoritative DERIVED set (matched
+ * to our characters by name), so a Treasure unit the name/slug heuristic doesn't
+ * flag still gets filled as long as it's in the derived set and already has a row.
+ */
+async function syncFavoriteItemSkills(): Promise<FavoriteItemResult> {
+  const rows = await db
+    .select({
+      id: nikkeCharacters.id,
+      name: nikkeCharacters.name,
+      aliases: nikkeCharacters.aliases,
+      prydwenSlug: nikkeCharacters.prydwenSlug,
+      favoriteItemId: nikkeCharacters.favoriteItemId,
+    })
+    .from(nikkeCharacters);
+
+  const gate = rows.some((c) => c.favoriteItemId == null && isTreasureUnit(c));
+  if (!gate) {
+    return { fetched: 0, unmatched: [], errors: [] };
+  }
+
+  const items = await deriveTreasureItems();
+  const charByName = new Map(rows.map((c) => [normalizeName(c.name), c]));
+
+  const unmatched: string[] = [];
+  const errors: string[] = [];
+  let fetched = 0;
+
+  for (const item of items) {
+    const character = charByName.get(normalizeName(item.ownerName));
+    if (!character) {
+      unmatched.push(item.ownerName); // treasure unit we don't track (e.g. collab)
       continue;
     }
-    const written = await db
-      .update(nikkeCharacters)
-      .set({
-        skillDescriptions: {
-          skill1: s.skill1 ?? '',
-          skill2: s.skill2 ?? '',
-          burst: s.burst ?? '',
-        },
-        // No per-level data from Synergy — clear it so a stale plain-kit array
-        // from blablalink can never be matched against the Treasure prose.
-        skillLevels: { skill1: [], skill2: [], burst: [] },
-        updatedAt: sql`now()`,
-      })
-      .where(eq(nikkeCharacters.id, slug))
-      .returning({ id: nikkeCharacters.id });
-    updated += written.length;
+    if (character.favoriteItemId != null) {
+      continue; // already filled — fetch-only-new
+    }
+    try {
+      const { skillLevels, skillDescriptions } = parseFavoriteItemSkills(
+        item.skillGroup
+      );
+      await db
+        .update(nikkeCharacters)
+        .set({
+          skillLevels,
+          skillDescriptions,
+          favoriteItemId: item.favoriteItemId,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(nikkeCharacters.id, character.id));
+      fetched += 1;
+    } catch (error) {
+      errors.push(
+        `favorite-item ${character.name}: ${(error as Error).message}`
+      );
+    }
   }
-  return updated;
+
+  return { fetched, unmatched, errors };
 }
 
 /**
@@ -397,14 +442,16 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
   );
   errors.push(...baseStats.errors);
 
-  // Treasure-kit skill override (Synergy). Runs AFTER the roledata backfill so it
-  // wins over blablalink's plain-kit skill text for those units. A failure here
-  // degrades the run to "partial" like any other source.
-  const treasureSkills = await guarded(
-    'treasure-skills',
-    syncTreasureSkills,
-    0
+  // Treasure-kit skills from each unit's Favorite Item (public CDN — SSR list
+  // matched to characters by name_code). Runs AFTER the roledata backfill so it
+  // wins over blablalink's plain-kit skill data. Fetch-only-new; no session
+  // needed. A failure here degrades the run to "partial".
+  const favoriteItem = await guarded<FavoriteItemResult>(
+    'favorite-item-skills',
+    syncFavoriteItemSkills,
+    { fetched: 0, unmatched: [], errors: [] }
   );
+  errors.push(...favoriteItem.errors);
 
   // Derive high-res blablalink portraits from the resource_ids we now have. Runs
   // AFTER base stats so freshly-fetched resource_ids are included. Pure derivation
@@ -430,10 +477,14 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
         sheetRows: sheetPriority.length,
         prydwenTiers: prydwenMatched,
         baseStatsFetched: baseStats.fetched,
-        treasureSkills,
+        favoriteItemSkills: favoriteItem.fetched,
         portraits,
       },
-      unmatched: { ...unmatched, baseStats: baseStats.unmatched },
+      unmatched: {
+        ...unmatched,
+        baseStats: baseStats.unmatched,
+        favoriteItem: favoriteItem.unmatched,
+      },
       errors,
     },
   });
@@ -444,7 +495,7 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
     dictionaryEntries: dictRows.length,
     prydwenTiers: prydwenMatched,
     baseStatsFetched: baseStats.fetched,
-    treasureSkills,
+    favoriteItemSkills: favoriteItem.fetched,
     portraits,
     errors,
     unmatched: {

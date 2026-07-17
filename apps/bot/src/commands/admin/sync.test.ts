@@ -38,7 +38,7 @@ describe('/sync', () => {
       dictionaryEntries: 227,
       prydwenTiers: 191,
       baseStatsFetched: 0,
-      treasureSkills: 0,
+      favoriteItemSkills: 0,
       portraits: 0,
       errors: [],
       unmatched: { untranslated: 0, arenaStats: 0, sheet: 1 },

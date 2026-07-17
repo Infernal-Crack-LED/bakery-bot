@@ -530,6 +530,12 @@ export const nikkeCharacters = pgTable('nikke_characters', {
   // until that character's roledata has been fetched.
   skillLevels: jsonb('skill_levels').$type<SkillLevels>(),
   skillDescriptions: jsonb('skill_descriptions').$type<SkillDescriptions>(),
+  // For Treasure (Favorite-Item) units only: the blablalink Favorite Item id
+  // (favorite_item_tid) whose per-level skill data was folded into skill_levels /
+  // skill_descriptions above, replacing the plain roledata kit. Doubles as the
+  // "already synced" marker so the Favorite-Item sync stays fetch-only-new. Null
+  // for non-Treasure units (see syncFavoriteItemSkills in the bot's sync).
+  favoriteItemId: integer('favorite_item_id'),
   // Curated blablalink roledata snapshot, grouped by concern (see the Role*
   // interfaces above). Straight from the game's data, so these SUPERSEDE the
   // overlapping Synergy/Prydwen/sheet-derived columns. All populated in the same
