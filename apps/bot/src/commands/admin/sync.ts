@@ -40,7 +40,7 @@ export const command: Command = {
         `✅ Sync **${summary.status}** — ${summary.characters} characters, ` +
           `${summary.prydwenTiers} Prydwen tiers, ${summary.dictionaryEntries} dictionary entries` +
           `${summary.baseStatsFetched ? `, ${summary.baseStatsFetched} base-stat fetches` : ''}` +
-          `${summary.treasureSkills ? `, ${summary.treasureSkills} treasure skills` : ''}` +
+          `${summary.favoriteItemSkills ? `, ${summary.favoriteItemSkills} favorite-item skills` : ''}` +
           `${summary.portraits ? `, ${summary.portraits} portraits` : ''}` +
           `.`,
         `Unmatched — sheet ${u.sheet}, arena ${u.arenaStats}, untranslated ${u.untranslated}.`,

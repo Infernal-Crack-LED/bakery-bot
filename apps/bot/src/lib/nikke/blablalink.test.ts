@@ -6,11 +6,13 @@ import {
   extractSkillArrays,
   fetchBlablalinkRoster,
   parseBaseStats,
+  parseFavoriteItemSkills,
   parseRoleColumns,
   parseSkillDescriptions,
   parseSkillLevels,
   resolveSkillDescription,
   resourceUrl,
+  type FavoriteItemSkillGroup,
   type RoleData,
   type SkillDetail,
 } from './blablalink.js';
@@ -48,6 +50,17 @@ describe('resourceUrl', () => {
     );
     expect(resourceUrl('/character/CharacterLevelTable.json')).toBe(
       'https://sg-tools-cdn.blablalink.com/dv-15/e8b9e7f748f8734b2848842b47bf1cb2.json'
+    );
+    // Favorite Item — path recovered by md5-matching the obfuscated filename.
+    expect(resourceUrl('/equip/en/favorite_200701.json')).toBe(
+      'https://sg-tools-cdn.blablalink.com/qf-35/xj-78/2cef2b4f5f105b32637e4fa0cb9b2b36.json'
+    );
+    // Equipment overload-option + gear tables (paths from ShiftyPad's bundle).
+    expect(resourceUrl('/equip/equip_option_table_v2-en.json')).toBe(
+      'https://sg-tools-cdn.blablalink.com/bl-25/e76520be5092c3795fa92b8555f3e1c3.json'
+    );
+    expect(resourceUrl('/equip/ItemEquipTable-en.json')).toBe(
+      'https://sg-tools-cdn.blablalink.com/yu-75/6677291d48d5ac3804d5e7a194df7085.json'
     );
   });
 });
@@ -101,10 +114,11 @@ describe('fetchBlablalinkRoster', () => {
         Response.json([
           {
             resource_id: 90,
+            name_code: 5005,
             name_localkey: { name: 'Emma' },
             is_visible: true,
           },
-          { resource_id: 17, name_localkey: 'Anis: Star' },
+          { resource_id: 17, name_localkey: 'Anis: Star' }, // no name_code → 0
           { resource_id: 999, name_localkey: {} }, // no usable name → skipped
         ])
       )
@@ -113,8 +127,8 @@ describe('fetchBlablalinkRoster', () => {
     const roster = await fetchBlablalinkRoster(fetchImpl as never);
 
     expect(roster).toEqual([
-      { resourceId: 90, name: 'Emma' },
-      { resourceId: 17, name: 'Anis: Star' },
+      { resourceId: 90, name: 'Emma', nameCode: 5005 },
+      { resourceId: 17, name: 'Anis: Star', nameCode: 0 },
     ]);
     // Requests the obfuscated roster URL.
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -434,5 +448,53 @@ describe('parseRoleColumns', () => {
     // Fields that double as core roledata still come through.
     expect(bare.roleMeta.resource_id).toBe(90);
     expect(bare.roleMeta.critical_ratio).toBe(1500);
+  });
+});
+
+describe('parseFavoriteItemSkills', () => {
+  // Three blocks tagged by skill_change_slot (1/2/3), each a normal SkillDetail
+  // with length-10 per-level arrays — the real Favorite Item shape.
+  const arr10 = (start: number): unknown[] =>
+    Array.from({ length: 10 }, (_, i) => String(start + i));
+  const GROUP: FavoriteItemSkillGroup = [
+    {
+      skill_change_slot: 3, // out of order on purpose — mapping is by slot, not position
+      info: {
+        description_localkey: 'Burst deals {description_value_01}% damage.',
+        description_value_list: [{ description_value: arr10(100) }],
+      },
+    },
+    {
+      skill_change_slot: 1,
+      info: {
+        description_localkey: 'Skill 1: ATK ▲ {description_value_01}%.',
+        description_value_list: [{ description_value: arr10(1) }],
+      },
+    },
+    {
+      skill_change_slot: 2,
+      info: {
+        description_localkey: 'Skill 2: DEF ▲ {description_value_01}%.',
+        description_value_list: [{ description_value: arr10(50) }],
+      },
+    },
+  ];
+
+  it('maps blocks to skill1/skill2/burst by skill_change_slot and keeps per-level arrays', () => {
+    const { skillLevels, skillDescriptions } = parseFavoriteItemSkills(GROUP);
+    // Slot → slot, regardless of block order.
+    expect(skillLevels.skill1[0][9]).toBe(10); // arr10(1), level 10
+    expect(skillLevels.skill2[0][9]).toBe(59); // arr10(50)
+    expect(skillLevels.burst[0][9]).toBe(109); // arr10(100)
+    // Prose resolves at max level (index 9) and drops markup.
+    expect(skillDescriptions.skill1).toBe('Skill 1: ATK ▲ 10%.');
+    expect(skillDescriptions.burst).toBe('Burst deals 109% damage.');
+  });
+
+  it('yields empty slots for a missing/empty group', () => {
+    expect(parseFavoriteItemSkills([])).toEqual({
+      skillLevels: { skill1: [], skill2: [], burst: [] },
+      skillDescriptions: { skill1: '', skill2: '', burst: '' },
+    });
   });
 });

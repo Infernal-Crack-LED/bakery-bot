@@ -132,6 +132,7 @@ export function characterPortraitUrl(
 export interface BlablalinkRosterEntry {
   resourceId: number;
   name: string; // English display name, e.g. "Anis: Star"
+  nameCode: number; // the `name_code` the authenticated user API keys on
 }
 
 /**
@@ -212,6 +213,92 @@ export interface RoleData {
   element_details?: RoleElementDetail[];
   piece_detail?: RolePieceDetail;
   shot_detail?: RoleShotDetail;
+}
+
+/**
+ * The Favorite Item's per-slot skill blocks. `skill_change_slot` tags the slot
+ * (1 = Skill 1, 2 = Skill 2, 3 = Burst); each `info` is a normal SkillDetail
+ * with length-10 per-level `description_value` arrays.
+ */
+export type FavoriteItemSkillGroup = Array<{
+  skill_change_slot?: number;
+  info?: SkillDetail;
+}>;
+
+/**
+ * Shape of a Favorite Item payload (`/equip/<locale>/favorite_<id>.json`) — the
+ * fields we read. These are the equippable "doll" items: each carries per-grade
+ * base stats (length-3 arrays, one per unlock grade) plus two skill-group blocks
+ * (the collection burst skill and the item's own passive). `name_localkey` /
+ * `description_localkey` here are the resolved localized strings, not keys.
+ */
+export interface FavoriteItemData {
+  id: number;
+  name_localkey: string;
+  description_localkey: string;
+  favorite_rare: string; // e.g. "SSR"
+  favorite_type: string; // e.g. "Favorite"
+  weapon_type: string; // the weapon class it suits, e.g. "SR"
+  name_code: number;
+  max_level: number;
+  level_enhance_id: number;
+  // Per-grade stat curves (index = grade - 1).
+  atk: number[];
+  hp: number[];
+  def: number[];
+  grade: number[];
+  level1: number[];
+  level2: number[];
+  powers: number[];
+  // Asset keys (no portrait URL — same c<id>_<skin> scheme as characters).
+  icon_resource_id: string;
+  img_resource_id: string;
+  prop_resource_id: string;
+  // Skill blocks reuse the roledata SkillDetail shape (template + per-level
+  // value lists). The collection block is a flat list; the favorite-item block
+  // nests each skill under `info` and tags it with `skill_change_slot`
+  // (1 = Skill 1, 2 = Skill 2, 3 = Burst). Both optional — a partial feed
+  // degrades. Each `info` carries length-10 per-level `description_value` arrays.
+  collection_skill_group_data?: SkillDetail[];
+  favoriteitem_skill_group_data?: FavoriteItemSkillGroup;
+}
+
+/**
+ * One entry of the equipment overload-option table
+ * (`/equip/equip_option_table_v2-<locale>.json`): a buff line (e.g. "Increase
+ * ATK", "Increase Critical Rate") and the tiered `state_effect_id_list` it maps
+ * to. Entries sharing a `state_effect_group_id` are the same line at different
+ * tiers — the 9 rollable gear overload lines.
+ */
+export interface OverloadLine {
+  id: number;
+  description_localkey: string; // resolved English label, e.g. "Increase ATK"
+  state_effect_group_id: number;
+  state_effect_id_list: number[];
+}
+
+/**
+ * The equipment (gear/module) table (`/equip/ItemEquipTable-<locale>.json`).
+ * Served as a `{ version, records }` wrapper; each record is one gear piece
+ * (Module_A–D) with its stat lines and option slots. Only the fields we read
+ * are typed; the record carries more at runtime.
+ */
+export interface GearTable {
+  version: string;
+  records: GearItem[];
+}
+
+export interface GearItem {
+  id: number;
+  name_localkey: string;
+  resource_id: string;
+  item_type: string; // "Equip"
+  item_sub_type: string; // "Module_A" | "Module_B" | "Module_C" | "Module_D"
+  class: string; // "All" | a class name
+  item_rare: string; // e.g. "T9"
+  grade_core_id: number;
+  grow_grade: number;
+  stat: Array<{ stat_type: string; stat_value: number }>;
 }
 
 // ─── Pure parsers ───────────────────────────────────────────────────────────
@@ -334,6 +421,39 @@ export function parseSkillDescriptions(role: RoleData): SkillDescriptions {
   };
 }
 
+/**
+ * A Treasure (Favorite Item) unit's skills, parsed from the item's
+ * `favoriteitem_skill_group_data` into the SAME per-level shape as a character's
+ * roledata skills. Each block's `skill_change_slot` selects the slot (1 → skill1,
+ * 2 → skill2, 3 → burst); its `info` is a normal SkillDetail, so the existing
+ * `extractSkillArrays` / `resolveSkillDescription` do the work. This is the
+ * level-sensitive Treasure source the sim was missing — it supersedes the
+ * max-level-only Synergy prose the old syncTreasureSkills wrote.
+ */
+export function parseFavoriteItemSkills(group: FavoriteItemSkillGroup): {
+  skillLevels: SkillLevels;
+  skillDescriptions: SkillDescriptions;
+} {
+  const bySlot = new Map<number, SkillDetail>();
+  for (const block of group ?? []) {
+    if (block.skill_change_slot != null && block.info) {
+      bySlot.set(block.skill_change_slot, block.info);
+    }
+  }
+  return {
+    skillLevels: {
+      skill1: extractSkillArrays(bySlot.get(1)),
+      skill2: extractSkillArrays(bySlot.get(2)),
+      burst: extractSkillArrays(bySlot.get(3)),
+    },
+    skillDescriptions: {
+      skill1: resolveSkillDescription(bySlot.get(1)),
+      skill2: resolveSkillDescription(bySlot.get(2)),
+      burst: resolveSkillDescription(bySlot.get(3)),
+    },
+  };
+}
+
 // ─── Roledata snapshot projection (the 7 role_* columns) ────────────────────
 // Straight-from-source fields grouped by concern (see the Role* interfaces in
 // @app/db). This is a plain pick — the field names are kept verbatim. A few
@@ -429,6 +549,7 @@ export async function fetchBlablalinkRoster(
   const rows = await getJson<
     Array<{
       resource_id: number;
+      name_code?: number;
       name_localkey?: { name?: string } | string;
       is_visible?: boolean;
     }>
@@ -446,7 +567,11 @@ export async function fetchBlablalinkRoster(
     if (!name || r.resource_id == null) {
       continue;
     }
-    out.push({ resourceId: r.resource_id, name });
+    out.push({
+      resourceId: r.resource_id,
+      name,
+      nameCode: r.name_code ?? 0,
+    });
   }
   return out;
 }
@@ -460,4 +585,69 @@ export function fetchRoleData(
     resourceUrl(`/roledata/${resourceId}-v2-${LOCALE}.json`),
     fetchImpl
   );
+}
+
+/**
+ * The Favorite Item payload for one item (by its Favorite Item id, e.g. 200701
+ * for "Antique Compass" — NOT the character resource_id). The logical path
+ * `/equip/<locale>/favorite_<id>.json` was recovered by md5-matching the
+ * obfuscated CDN filename against candidate paths (see resourceUrl above).
+ */
+export function fetchFavoriteItem(
+  itemId: number,
+  fetchImpl: Fetch = fetch
+): Promise<FavoriteItemData> {
+  return getJson<FavoriteItemData>(
+    resourceUrl(`/equip/${LOCALE}/favorite_${itemId}.json`),
+    fetchImpl
+  );
+}
+
+/** Every Favorite Item id grouped by rarity. The `SSR` list is the real
+ * Treasure items (each maps to one character by `name_code`); `R`/`SR` are the
+ * generic stat-only dolls. Lets us enumerate Treasure items without a session. */
+export interface FavoriteRareMap {
+  R?: number[];
+  SR?: number[];
+  SSR?: number[];
+}
+
+/** The Favorite Item id ↔ rarity map (`/equip/favorite_rare_map.json`). */
+export function fetchFavoriteRareMap(
+  fetchImpl: Fetch = fetch
+): Promise<FavoriteRareMap> {
+  return getJson<FavoriteRareMap>(
+    resourceUrl('/equip/favorite_rare_map.json'),
+    fetchImpl
+  );
+}
+
+/**
+ * The equipment overload-option table: every rollable gear line with its tiered
+ * `state_effect_id_list`. Path (`/equip/equip_option_table_v2-<locale>.json`)
+ * taken verbatim from ShiftyPad's bundle.
+ */
+export function fetchOverloadLineIds(
+  fetchImpl: Fetch = fetch
+): Promise<OverloadLine[]> {
+  return getJson<OverloadLine[]>(
+    resourceUrl(`/equip/equip_option_table_v2-${LOCALE}.json`),
+    fetchImpl
+  );
+}
+
+/**
+ * The equipment (gear/module) stat table — all Module_A–D pieces with their
+ * stats and option slots. Unwraps the `{ version, records }` envelope and
+ * returns the records. Path (`/equip/ItemEquipTable-<locale>.json`) taken
+ * verbatim from ShiftyPad's bundle.
+ */
+export async function fetchGearStats(
+  fetchImpl: Fetch = fetch
+): Promise<GearItem[]> {
+  const table = await getJson<GearTable>(
+    resourceUrl(`/equip/ItemEquipTable-${LOCALE}.json`),
+    fetchImpl
+  );
+  return table.records ?? [];
 }
