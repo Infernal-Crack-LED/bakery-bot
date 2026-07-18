@@ -6,10 +6,10 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "prebuild": "tsc -p ../../packages/db",
+    "prebuild": "tsc -p ../../packages/db && tsc -p ../../packages/nikke",
     "build": "tsc",
-    "pretypecheck": "tsc -p ../../packages/db",
-    "pretest": "tsc -p ../../packages/db",
+    "pretypecheck": "tsc -p ../../packages/db && tsc -p ../../packages/nikke",
+    "pretest": "tsc -p ../../packages/db && tsc -p ../../packages/nikke",
     "start": "node dist/index.js",
     "register": "node dist/deploy-commands.js",
     "deploy-commands": "tsx src/deploy-commands.ts",
@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@app/db": "*",
+    "@app/nikke": "*",
     "chrono-node": "^2.9.1",
     "discord.js": "^14.16.3",
     "drizzle-orm": "^0.36.4",

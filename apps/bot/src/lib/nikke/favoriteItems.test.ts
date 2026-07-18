@@ -7,9 +7,14 @@ import {
   resolveFavoriteItemRefs,
 } from './favoriteItems.js';
 import { resourceUrl } from './blablalink.js';
-import type { BlablalinkAuth } from './blablalinkUser.js';
+import type { BlablalinkAuth } from '@app/nikke';
 
-const AUTH: BlablalinkAuth = { gameToken: 't', openId: 'o', areaId: 82 };
+const AUTH: BlablalinkAuth = {
+  gameToken: 't',
+  gameOpenId: 'go',
+  intlOpenId: 'io',
+  areaId: 82,
+};
 
 // A fake fetch that routes by URL host/path to canned payloads. The CDN roster
 // URL is obfuscated, so match on host; the user API + favorite item are keyed

@@ -4,15 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "prebuild": "tsc -p ../../packages/db",
+    "prebuild": "tsc -p ../../packages/db && tsc -p ../../packages/nikke",
     "build": "next build",
     "start": "next start -p ${PORT:-3000}",
     "lint": "next lint",
-    "pretypecheck": "tsc -p ../../packages/db",
+    "pretypecheck": "tsc -p ../../packages/db && tsc -p ../../packages/nikke",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@app/db": "*",
+    "@app/nikke": "*",
     "drizzle-orm": "^0.36.4",
     "next": "^15.1.0",
     "react": "^19.0.0",
