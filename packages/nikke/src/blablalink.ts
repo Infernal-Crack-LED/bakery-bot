@@ -651,3 +651,56 @@ export async function fetchGearStats(
   );
   return table.records ?? [];
 }
+
+/**
+ * One Harmony Cube (`/equip/<locale>/cube_<tid>.json`). `name_localkey` is the
+ * resolved English name ("Bastion Cube"); `atk`/`hp`/`def` are per-level arrays.
+ * Path taken verbatim from ShiftyPad's bundle (`getCubeByCubeId`).
+ */
+export interface CubeData {
+  id: number;
+  name_localkey: string;
+  atk?: number[];
+  hp?: number[];
+  def?: number[];
+}
+
+/** Fetch one Harmony Cube by its tid (harmony_cube_tid). */
+export function fetchCube(
+  cubeTid: number,
+  fetchImpl: Fetch = fetch
+): Promise<CubeData> {
+  return getJson<CubeData>(
+    resourceUrl(`/equip/${LOCALE}/cube_${cubeTid}.json`),
+    fetchImpl
+  );
+}
+
+/**
+ * One row of the Outpost "Recycle Research" stat table
+ * (`/character/RecycleResearchStatTable.json`): the per-RANK stat bonus for a
+ * class or manufacturer research track. `recycle_type` is Personal | Class |
+ * Corporation; `recycle_sub_type` is the class/corp name (e.g. "Supporter",
+ * "PILGRIM"). `attack`/`hp`/`defence` are the bonus PER rank (multiply by the
+ * account's research level for that track). The `id` matches the `tid` in a
+ * user's `recycle_room_researches`.
+ */
+export interface RecycleResearchStat {
+  id: number;
+  recycle_type: string;
+  recycle_sub_type: string;
+  attack: number;
+  hp: number;
+  defence: number;
+}
+
+/** The Outpost recycle-research per-rank stat table. */
+export async function fetchRecycleResearchTable(
+  fetchImpl: Fetch = fetch
+): Promise<RecycleResearchStat[]> {
+  // Served as a `{ version, records }` envelope (like ItemEquipTable).
+  const table = await getJson<
+    { records?: RecycleResearchStat[] } | RecycleResearchStat[]
+  >(resourceUrl('/character/RecycleResearchStatTable.json'), fetchImpl);
+  return Array.isArray(table) ? table : (table.records ?? []);
+}

@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -853,3 +855,85 @@ export const userTeams = pgTable(
 
 export type UserTeam = typeof userTeams.$inferSelect;
 export type NewUserTeam = typeof userTeams.$inferInsert;
+
+/**
+ * Persisted NIKKE roster snapshots, keyed by the account's blablalink open id
+ * (NOT the Discord user — one person may own several NIKKE accounts, so the open
+ * id the caller supplies is the identity). Written by the web app's roster sync
+ * (apps/web .../api/blabla-roster) so the sim can read a roster across sessions
+ * without a live blablalink fetch; a "force resync" overwrites the row.
+ *
+ * `characters` is the GetUserCharacters summary list (always present).
+ * `details` is the heavier per-character GetUserCharacterDetails payload, stored
+ * only when a sync fetched it (nullable so a list-only sync doesn't wipe it).
+ */
+export interface RosterCharacter {
+  name_code: number;
+  combat: number;
+  lv: number;
+  grade: number;
+  core: number;
+  costume_id: number;
+}
+
+export const nikkeRosters = pgTable('nikke_rosters', {
+  openId: text('open_id').primaryKey(),
+  areaId: integer('area_id').notNull(),
+  characters: jsonb('characters').$type<RosterCharacter[]>().notNull(),
+  details: jsonb('details').$type<unknown[]>(),
+  // Normalized, sim-ready per-unit loadouts derived from `details` (see
+  // @app/nikke syncedLoadout). Opaque to the DB — the sim consumes it. Present
+  // only when a sync fetched details. `syncLevel` is the account synchro level.
+  syncedLoadouts: jsonb('synced_loadouts').$type<unknown[]>(),
+  syncLevel: integer('sync_level'),
+  syncedAt: timestamp('synced_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type NikkeRoster = typeof nikkeRosters.$inferSelect;
+export type NewNikkeRoster = typeof nikkeRosters.$inferInsert;
+
+/**
+ * Discord user ↔ NIKKE account (open id) links, so a user's account persists
+ * across sessions and they never re-enter an open id. The account most recently
+ * synced is auto-linked as the user's *current* account (`current = true`);
+ * switching to a different open id flips the previous row to `current = false`,
+ * so the table doubles as a historical record of every account a user has used.
+ * One-to-many (a user may have used several accounts over time), but at most one
+ * is current — enforced by the partial unique index below. `label` is an
+ * optional user-facing name ("main", "alt"). The roster snapshot itself lives in
+ * nikke_rosters, keyed by open id; join on open_id for each account's last sync.
+ */
+export const nikkeAccountLinks = pgTable(
+  'nikke_account_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    discordId: text('discord_id').notNull(),
+    openId: text('open_id').notNull(),
+    label: text('label'),
+    // The active account is the single row with current=true; a superseded
+    // account stays as a row with current=false (the historical record).
+    current: boolean('current').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index('nikke_account_links_discord_id_idx').on(t.discordId),
+    uniqueIndex('nikke_account_links_discord_open_uq').on(
+      t.discordId,
+      t.openId
+    ),
+    // At most one current account per Discord user.
+    uniqueIndex('nikke_account_links_one_current_uq')
+      .on(t.discordId)
+      .where(sql`${t.current}`),
+  ]
+);
+
+export type NikkeAccountLink = typeof nikkeAccountLinks.$inferSelect;
+export type NewNikkeAccountLink = typeof nikkeAccountLinks.$inferInsert;

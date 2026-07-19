@@ -17,6 +17,9 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "dependencies": {
+    "@app/db": "*"
+  },
   "devDependencies": {
     "@types/node": "^22.10.1",
     "typescript": "^5.7.2",
