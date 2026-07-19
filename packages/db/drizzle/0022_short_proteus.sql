@@ -1,0 +1,3 @@
+ALTER TABLE "nikke_account_links" ADD COLUMN "current" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "nikke_account_links" ADD COLUMN "updated_at" timestamp with time zone DEFAULT now() NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "nikke_account_links_one_current_uq" ON "nikke_account_links" USING btree ("discord_id") WHERE "nikke_account_links"."current";
