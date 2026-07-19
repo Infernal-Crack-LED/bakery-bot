@@ -8,3 +8,4 @@
  * client, parsers) can move here over time.
  */
 export * from './blablalinkUser.js';
+export * from './syncedLoadout.js';
