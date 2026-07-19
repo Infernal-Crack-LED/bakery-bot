@@ -44,10 +44,13 @@ export interface StatTriple {
 /** The fields buildOverloadIndex reads from an overload-option table entry. */
 type OverloadLineInput = Pick<
   OverloadLine,
-  'description_localkey' | 'state_effect_id_list'
+  | 'id'
+  | 'description_localkey'
+  | 'state_effect_group_id'
+  | 'state_effect_id_list'
 >;
 
-/** A state_effect_id resolved to its line label + 1-based roll tier. */
+/** A state_effect_id resolved to its line label + roll tier (1..15). */
 export interface OlResolved {
   label: string;
   tier: number;
@@ -57,7 +60,7 @@ export interface OlResolved {
 
 export interface SyncedOlLine {
   label: string; // canonical English label, e.g. "Increase ATK"
-  tier: number; // 1..N roll tier (sim maps (label, tier) → value)
+  tier: number; // roll tier 1..15 (sim maps (label, tier) → value)
 }
 export interface SyncedCube {
   name: string; // resolved cube name, e.g. "Bastion" (no " Cube" suffix)
@@ -123,16 +126,37 @@ const addStats = (a: StatTriple, b: StatTriple): StatTriple => ({
 
 /**
  * Reverse-index the overload-option table so a unit's equipped `state_effect_id`
- * resolves to its line label + roll tier (index+1 in its list) in O(1).
+ * resolves to its line label + roll tier in O(1).
+ *
+ * A single OL line spans SEVERAL table entries (5 ids each) that share a
+ * `state_effect_group_id` — the 9 gear lines have 3 entries = 15 tiers each. The
+ * tier is the id's GLOBAL position across the whole group (entries concatenated
+ * in ascending `id` order), NOT its position within one entry. So e.g. the first
+ * id of the third Critical-Rate entry is tier 11, not tier 1.
  */
 export function buildOverloadIndex(
   lines: OverloadLineInput[]
 ): Map<number, OlResolved> {
-  const map = new Map<number, OlResolved>();
+  const byGroup = new Map<number, OverloadLineInput[]>();
   for (const line of lines) {
-    line.state_effect_id_list.forEach((id, i) => {
-      map.set(id, { label: line.description_localkey, tier: i + 1 });
-    });
+    const arr = byGroup.get(line.state_effect_group_id);
+    if (arr) {
+      arr.push(line);
+    } else {
+      byGroup.set(line.state_effect_group_id, [line]);
+    }
+  }
+
+  const map = new Map<number, OlResolved>();
+  for (const entries of byGroup.values()) {
+    entries.sort((a, b) => a.id - b.id);
+    let tier = 0;
+    for (const entry of entries) {
+      for (const id of entry.state_effect_id_list) {
+        tier += 1;
+        map.set(id, { label: entry.description_localkey, tier });
+      }
+    }
   }
   return map;
 }
