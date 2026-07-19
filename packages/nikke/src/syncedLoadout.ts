@@ -1,125 +1,104 @@
 /**
- * Normalize a blablalink `GetUserCharacterDetails` entry into the compact,
- * label-based per-unit loadout the nikke-sim "Synced Roster" preset consumes.
+ * Normalize a blablalink `GetUserCharacterDetails` entry into the compact
+ * per-unit loadout the nikke-sim "Synced Roster" preset consumes — with fully
+ * RESOLVED numbers (labels + rolled tiers + computed ATK/HP/DEF), so the sim
+ * applies them directly without re-resolving any game ids.
  *
  * Contract (source of truth): nikke-sim
  *   docs/handoffs/2026-07-18-synced-roster-stats-backend-contract.md
  *
- * Division of labor: THIS side resolves raw game ids → human LABELS + rolled
- * VALUES using the CDN tables the bot already loads (the overload-option table,
- * a cube table, the skill levels in the detail). The sim then maps those labels
- * → its own keys (they already match its data/ol-lines.json + data/cubes.json
- * `name` fields). So we emit labels the sim recognizes — never sim-internal keys.
+ * This module is PURE. The route supplies the resolver inputs (built from the
+ * CDN tables + the account's Outpost info) and this turns one raw detail into
+ * the normalized shape. Builders for each resolver map live here too.
  *
- * This module is PURE: it takes the raw detail plus resolver inputs and returns
- * the normalized shape. The route wires it up (fetch the overload table once,
- * build the reverse index, pass a value resolver + cube-name resolver).
- *
- * ── VERIFY-AGAINST-LIVE-SAMPLE ──────────────────────────────────────────────
- * The RAW field paths below (equipment array, per-piece option list, the
- * `state_effect_id` key, harmony-cube + skill-level fields) are the ONE thing
- * not yet confirmed from a real payload — nothing in bakery-bot parses gear/cube
- * from this endpoint yet (only favorite_item_tid, via a deep-walk). Before
- * shipping: log one `data.character_details[0]` for a maxed unit and confirm/fix
- * the field names marked `VERIFY:` here. The resolution + shaping logic below is
- * covered by syncedLoadout.test.ts and does not depend on those names.
+ * ── Field paths CONFIRMED against a live GetUserCharacterDetails payload ──────
+ * FLAT payload (no nested arrays):
+ *   gear:   <slot>_equip_option{1,2,3}_id, <slot>_equip_tid, <slot>_equip_tier,
+ *           <slot>_equip_lv   for slot ∈ {head, torso, arm, leg}; option 0 = empty
+ *   cube:   harmony_cube_tid, harmony_cube_lv   (0 = none; arena_* ignored)
+ *   doll:   favorite_item_tid, favorite_item_lv (0 = none; same field for FI +
+ *           non-FI units — the tid range differs, rarity comes from the rare map)
+ *   skills: skill1_lv, skill2_lv, ulti_skill_lv (burst)
+ *   bond:   attractive_lv        grade/core: grade, core
+ *   NOTE:   the detail's `lv` is the unit's own level (~1) — NOT the synchro
+ *           level. syncLevel comes from the Outpost `synchro_level` (or the
+ *           roster SUMMARY max; see deriveSyncLevel).
  */
 
-/**
- * The subset of the overload-option table entry this module needs. Structurally
- * compatible with apps/bot's `OverloadLine` (fetchOverloadLineIds) — kept local
- * because packages/* must not depend on apps/*. `description_localkey` is the
- * resolved English label; `state_effect_id_list` are the tier ids for the line.
- */
-export interface OverloadLine {
-  description_localkey: string;
-  state_effect_group_id: number;
-  state_effect_id_list: number[];
+import type {
+  CubeData,
+  FavoriteRareMap,
+  GearItem,
+  OverloadLine,
+  RecycleResearchStat,
+} from './blablalink.js';
+import type { RecycleRoomResearch } from './blablalinkUser.js';
+
+/** Flat ATK/HP/DEF triple used for gear + outpost bonuses. */
+export interface StatTriple {
+  atk: number;
+  hp: number;
+  def: number;
 }
 
-// ─── The normalized shape the sim consumes (mirror of the handoff contract) ──
+/** The fields buildOverloadIndex reads from an overload-option table entry. */
+type OverloadLineInput = Pick<
+  OverloadLine,
+  'description_localkey' | 'state_effect_id_list'
+>;
+
+/** A state_effect_id resolved to its line label + 1-based roll tier. */
+export interface OlResolved {
+  label: string;
+  tier: number;
+}
+
+// ─── The normalized shape the sim consumes ──────────────────────────────────
 
 export interface SyncedOlLine {
   label: string; // canonical English label, e.g. "Increase ATK"
-  value: number; // rolled % value
+  tier: number; // 1..N roll tier (sim maps (label, tier) → value)
 }
 export interface SyncedCube {
-  name: string; // canonical cube name, e.g. "Bastion"
+  name: string; // resolved cube name, e.g. "Bastion" (no " Cube" suffix)
   level: number; // 1–15
+}
+export interface SyncedDoll {
+  rarity: string; // "R" | "SR" | "SSR"
+  level: number; // 0–15
 }
 export interface SyncedUnitLoadout {
   nameCode: number;
   grade: number; // Limit Break stars 0–3
   core: number; // core enhancement 0–7
   bond?: number; // bond / attractive level
-  level?: number; // this unit's own level (syncLevel fallback)
   skills?: { skill1: number; skill2: number; burst: number };
   cube?: SyncedCube | null;
+  doll?: SyncedDoll | null;
   ol?: SyncedOlLine[];
-  gearTier?: string;
+  gear?: StatTriple | null; // resolved total gear stats (T10 pieces only)
+  outpost?: StatTriple; // resolved Outpost (class+corp+personal) bonus
+  gearTier?: string; // "T10" when all four pieces are max-tier overload gear
 }
-
-// ─── Resolver inputs the route supplies ─────────────────────────────────────
 
 export interface NormalizeDeps {
-  /** state_effect_id → its overload line (label + tier list). Build with buildOverloadIndex. */
-  lineByStateEffectId: Map<number, OverloadLine>;
-  /** state_effect_id → the rolled % value it represents. */
-  resolveStateEffectValue: (stateEffectId: number) => number | undefined;
-  /** harmony-cube tid → canonical cube name (e.g. 1 → "Bastion"). Omit → cube dropped. */
+  /** state_effect_id → { label, tier }. Build with buildOverloadIndex. */
+  lineByStateEffectId: Map<number, OlResolved>;
+  /** gear tid → base ATK/HP/DEF (ItemEquipTable). Build with buildGearBaseIndex. */
+  gearBaseByTid?: Map<number, StatTriple>;
+  /** harmony_cube_tid → resolved cube name. Route builds it from cube_<tid>.json. */
   cubeNameByTid?: Map<number, string>;
+  /** favorite_item_tid → rarity. Build with buildDollRarityIndex. */
+  dollRarityByTid?: Map<number, string>;
+  /** name_code → the unit's static class + manufacturer (for the Outpost bonus). */
+  classCorpByNameCode?: Map<number, { class: string; corp: string }>;
+  /** (unitClass, unitCorp) → resolved Outpost bonus. Build with buildOutpostResolver. */
+  outpostBonus?: (unitClass: string, unitCorp: string) => StatTriple;
 }
 
-/**
- * Reverse-index the overload-option table (fetchOverloadLineIds) so a unit's
- * equipped `state_effect_id` resolves to its line in O(1). An id appears in
- * exactly one line's `state_effect_id_list`.
- */
-export function buildOverloadIndex(
-  lines: OverloadLine[]
-): Map<number, OverloadLine> {
-  const map = new Map<number, OverloadLine>();
-  for (const line of lines) {
-    for (const id of line.state_effect_id_list) {
-      map.set(id, line);
-    }
-  }
-  return map;
-}
-
-// ─── Raw payload shape (VERIFY against a live GetUserCharacterDetails entry) ──
-
-interface RawEquipOption {
-  // VERIFY: the field carrying the rolled option's state-effect id.
-  state_effect_id?: number;
-  id?: number;
-}
-interface RawEquip {
-  // VERIFY: the field carrying a gear piece's rolled overload options.
-  overload_options?: RawEquipOption[];
-  options?: RawEquipOption[];
-}
-interface RawCube {
-  tid?: number;
-  id?: number;
-  lv?: number;
-  level?: number;
-}
-export interface RawCharacterDetail {
-  name_code: number;
-  grade?: number;
-  core?: number;
-  attractive_lv?: number; // VERIFY: bond field
-  lv?: number;
-  // VERIFY: skill-level fields
-  skill1_lv?: number;
-  skill2_lv?: number;
-  ulti_skill_lv?: number;
-  // VERIFY: harmony-cube + equipment fields
-  harmony_cube?: RawCube;
-  equipments?: RawEquip[];
-  [k: string]: unknown;
-}
+const GEAR_SLOTS = ['head', 'torso', 'arm', 'leg'] as const;
+const OVERLOAD_GEAR_TIER = 10; // T10 gear = the 3-overload-slot end-game modules
+const GEAR_LEVEL_BONUS = 0.1; // +10% base stat per gear enhancement level (0–5)
 
 const int = (v: unknown, lo: number, hi: number, dflt = 0): number => {
   const n = typeof v === 'number' ? v : Number(v);
@@ -129,10 +108,143 @@ const int = (v: unknown, lo: number, hi: number, dflt = 0): number => {
   return Math.max(lo, Math.min(hi, Math.round(n)));
 };
 
+const num = (v: unknown): number => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const addStats = (a: StatTriple, b: StatTriple): StatTriple => ({
+  atk: a.atk + b.atk,
+  hp: a.hp + b.hp,
+  def: a.def + b.def,
+});
+
+// ─── Resolver builders (pure) ───────────────────────────────────────────────
+
+/**
+ * Reverse-index the overload-option table so a unit's equipped `state_effect_id`
+ * resolves to its line label + roll tier (index+1 in its list) in O(1).
+ */
+export function buildOverloadIndex(
+  lines: OverloadLineInput[]
+): Map<number, OlResolved> {
+  const map = new Map<number, OlResolved>();
+  for (const line of lines) {
+    line.state_effect_id_list.forEach((id, i) => {
+      map.set(id, { label: line.description_localkey, tier: i + 1 });
+    });
+  }
+  return map;
+}
+
+/** gear tid → base ATK/HP/DEF, summing the ItemEquipTable stat lines. */
+export function buildGearBaseIndex(items: GearItem[]): Map<number, StatTriple> {
+  const map = new Map<number, StatTriple>();
+  for (const item of items) {
+    const stat: StatTriple = { atk: 0, hp: 0, def: 0 };
+    for (const s of item.stat ?? []) {
+      if (s.stat_type === 'Atk') {
+        stat.atk += s.stat_value;
+      } else if (s.stat_type === 'Hp') {
+        stat.hp += s.stat_value;
+      } else if (s.stat_type === 'Defence') {
+        stat.def += s.stat_value;
+      }
+    }
+    map.set(item.id, stat);
+  }
+  return map;
+}
+
+/** favorite_item_tid → rarity ("R" | "SR" | "SSR"), from the rare-map arrays. */
+export function buildDollRarityIndex(
+  rareMap: FavoriteRareMap
+): Map<number, string> {
+  const map = new Map<number, string>();
+  for (const [rarity, ids] of Object.entries(rareMap)) {
+    for (const id of (ids as number[]) ?? []) {
+      map.set(id, rarity);
+    }
+  }
+  return map;
+}
+
+/** Cube name for the sim: strip blablalink's " Cube" suffix ("Bastion Cube" → "Bastion"). */
+export function cubeDisplayName(cube: Pick<CubeData, 'name_localkey'>): string {
+  return cube.name_localkey.replace(/\s*Cube$/i, '').trim();
+}
+
+/**
+ * Build the Outpost (Recycle Research) bonus resolver: given a unit's class +
+ * manufacturer, return the flat ATK/HP/DEF from the account's Personal + Class +
+ * Corporation research, each = the table's per-rank stat × the account's rank.
+ */
+export function buildOutpostResolver(
+  researches: RecycleRoomResearch[],
+  table: RecycleResearchStat[]
+): (unitClass: string, unitCorp: string) => StatTriple {
+  const lvByTid = new Map(researches.map((r) => [r.tid, r.lv]));
+  const rowById = new Map(table.map((r) => [r.id, r]));
+  const classTidByName = new Map<string, number>();
+  const corpTidByName = new Map<string, number>();
+  let personalTid: number | undefined;
+  for (const r of table) {
+    if (r.recycle_type === 'Personal') {
+      personalTid = r.id;
+    } else if (r.recycle_type === 'Class') {
+      classTidByName.set(r.recycle_sub_type.toLowerCase(), r.id);
+    } else if (r.recycle_type === 'Corporation') {
+      corpTidByName.set(r.recycle_sub_type.toLowerCase(), r.id);
+    }
+  }
+
+  const bonusForTid = (tid: number | undefined): StatTriple => {
+    if (tid == null) {
+      return { atk: 0, hp: 0, def: 0 };
+    }
+    const row = rowById.get(tid);
+    const lv = lvByTid.get(tid) ?? 0;
+    if (!row || !lv) {
+      return { atk: 0, hp: 0, def: 0 };
+    }
+    return { atk: row.attack * lv, hp: row.hp * lv, def: row.defence * lv };
+  };
+
+  return (unitClass, unitCorp) => {
+    let out = bonusForTid(personalTid); // applies to every unit
+    out = addStats(
+      out,
+      bonusForTid(classTidByName.get(unitClass.toLowerCase()))
+    );
+    out = addStats(out, bonusForTid(corpTidByName.get(unitCorp.toLowerCase())));
+    return out;
+  };
+}
+
+// ─── Raw payload shape (flat; confirmed from a live entry) ───────────────────
+
+export interface RawCharacterDetail {
+  name_code: number;
+  grade?: number;
+  core?: number;
+  attractive_lv?: number; // bond
+  lv?: number; // unit's own level — NOT synchro level (see deriveSyncLevel)
+  skill1_lv?: number;
+  skill2_lv?: number;
+  ulti_skill_lv?: number; // burst
+  harmony_cube_tid?: number;
+  harmony_cube_lv?: number;
+  favorite_item_tid?: number;
+  favorite_item_lv?: number;
+  // Gear is flat per slot: `${slot}_equip_option{1,2,3}_id`, `${slot}_equip_tid`,
+  // `${slot}_equip_tier`, `${slot}_equip_lv`. Accessed via the index signature.
+  [k: string]: unknown;
+}
+
 /**
  * Normalize one raw detail → SyncedUnitLoadout. Returns null only if the entry
- * has no usable `name_code` (the sim joins on it). Never throws on partial data —
- * a missing gear/cube/skill block just omits that facet.
+ * has no usable `name_code`. Never throws on partial data — a missing facet
+ * (gear/cube/doll/skill/outpost) is simply omitted.
  */
 export function normalizeSyncedLoadout(
   raw: RawCharacterDetail,
@@ -143,36 +255,66 @@ export function normalizeSyncedLoadout(
     return null;
   }
 
-  // Overload lines across every equipped piece.
+  // Overload lines + resolved gear stats, from the four gear pieces. Overload
+  // and gear stats only count T10 pieces (a sub-T10 piece is treated as null).
   const ol: SyncedOlLine[] = [];
-  for (const piece of raw.equipments ?? []) {
-    const opts = piece.overload_options ?? piece.options ?? [];
-    for (const opt of opts) {
-      const sid = opt.state_effect_id ?? opt.id;
-      if (sid == null) {
+  let overloadPieces = 0;
+  let gear: StatTriple | null = null;
+  for (const slot of GEAR_SLOTS) {
+    if (num(raw[`${slot}_equip_tier`]) !== OVERLOAD_GEAR_TIER) {
+      continue;
+    }
+    overloadPieces++;
+
+    for (let n = 1; n <= 3; n++) {
+      const sid = num(raw[`${slot}_equip_option${n}_id`]);
+      if (!sid) {
         continue;
       }
-      const line = deps.lineByStateEffectId.get(sid);
-      if (!line) {
-        continue;
+      const resolved = deps.lineByStateEffectId.get(sid);
+      if (resolved) {
+        ol.push({ label: resolved.label, tier: resolved.tier });
       }
-      const value = deps.resolveStateEffectValue(sid);
-      if (value == null || !(value > 0)) {
-        continue;
-      }
-      ol.push({ label: line.description_localkey, value });
+    }
+
+    // Base stats × (1 + 0.1·level). T10 gear has no manufacturer, so no corp
+    // bonus applies. Rounded per piece per stat (matching the game client).
+    const base = deps.gearBaseByTid?.get(num(raw[`${slot}_equip_tid`]));
+    if (base) {
+      const mult = 1 + GEAR_LEVEL_BONUS * num(raw[`${slot}_equip_lv`]);
+      gear = addStats(gear ?? { atk: 0, hp: 0, def: 0 }, {
+        atk: Math.round(base.atk * mult),
+        hp: Math.round(base.hp * mult),
+        def: Math.round(base.def * mult),
+      });
     }
   }
 
-  // Harmony cube → { name, level }.
+  // Harmony cube → resolved name (PvE slot only; arena cube ignored).
   let cube: SyncedCube | null = null;
-  const rawCube = raw.harmony_cube;
-  if (rawCube) {
-    const tid = rawCube.tid ?? rawCube.id;
-    const name = tid != null ? deps.cubeNameByTid?.get(tid) : undefined;
+  const cubeTid = num(raw.harmony_cube_tid);
+  if (cubeTid > 0) {
+    const name = deps.cubeNameByTid?.get(cubeTid);
     if (name) {
-      cube = { name, level: int(rawCube.lv ?? rawCube.level, 1, 15, 15) };
+      cube = { name, level: int(raw.harmony_cube_lv, 1, 15, 1) };
     }
+  }
+
+  // Doll (Favorite Item) → rarity + level. Same field for FI and non-FI units.
+  let doll: SyncedDoll | null = null;
+  const dollTid = num(raw.favorite_item_tid);
+  if (dollTid > 0) {
+    const rarity = deps.dollRarityByTid?.get(dollTid);
+    if (rarity) {
+      doll = { rarity, level: int(raw.favorite_item_lv, 0, 15, 0) };
+    }
+  }
+
+  // Outpost (Recycle Research) bonus, by the unit's static class + manufacturer.
+  let outpost: StatTriple | undefined;
+  const cc = deps.classCorpByNameCode?.get(nameCode);
+  if (cc && deps.outpostBonus) {
+    outpost = deps.outpostBonus(cc.class, cc.corp);
   }
 
   const hasSkills =
@@ -184,7 +326,6 @@ export function normalizeSyncedLoadout(
     core: int(raw.core, 0, 7),
     bond:
       raw.attractive_lv != null ? int(raw.attractive_lv, 0, 999) : undefined,
-    level: raw.lv != null ? int(raw.lv, 1, 999) : undefined,
     skills: hasSkills
       ? {
           skill1: int(raw.skill1_lv, 1, 10, 1),
@@ -193,30 +334,43 @@ export function normalizeSyncedLoadout(
         }
       : undefined,
     cube,
+    doll,
     ol: ol.length ? ol : undefined,
+    gear,
+    outpost,
+    gearTier: overloadPieces === GEAR_SLOTS.length ? 'T10' : undefined,
   };
 }
 
-/**
- * Normalize a whole `character_details` array, dropping unusable entries. The
- * account-wide synchro level is the max per-unit level (the Synchro Device caps
- * at the highest-leveled unit); the route returns it as `syncLevel`.
- */
+/** Normalize a whole `character_details` array, dropping unusable entries. */
 export function normalizeSyncedRoster(
   details: RawCharacterDetail[],
   deps: NormalizeDeps
-): { syncedLoadouts: SyncedUnitLoadout[]; syncLevel: number | undefined } {
-  const syncedLoadouts: SyncedUnitLoadout[] = [];
-  let syncLevel = 0;
+): SyncedUnitLoadout[] {
+  const out: SyncedUnitLoadout[] = [];
   for (const raw of details ?? []) {
     const norm = normalizeSyncedLoadout(raw, deps);
-    if (!norm) {
-      continue;
-    }
-    syncedLoadouts.push(norm);
-    if (norm.level && norm.level > syncLevel) {
-      syncLevel = norm.level;
+    if (norm) {
+      out.push(norm);
     }
   }
-  return { syncedLoadouts, syncLevel: syncLevel > 0 ? syncLevel : undefined };
+  return out;
+}
+
+/**
+ * Account-wide synchro level. Prefer the Outpost `synchro_level`; otherwise the
+ * max unit level from the roster SUMMARY (`GetUserCharacters[].lv`) — never the
+ * detail (whose `lv` is the unit's own ~1 level).
+ */
+export function deriveSyncLevel(
+  characters: Array<{ lv?: number }>
+): number | undefined {
+  let max = 0;
+  for (const c of characters ?? []) {
+    const lv = Number(c?.lv);
+    if (Number.isFinite(lv) && lv > max) {
+      max = lv;
+    }
+  }
+  return max > 0 ? max : undefined;
 }

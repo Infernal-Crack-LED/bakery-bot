@@ -881,6 +881,11 @@ export const nikkeRosters = pgTable('nikke_rosters', {
   areaId: integer('area_id').notNull(),
   characters: jsonb('characters').$type<RosterCharacter[]>().notNull(),
   details: jsonb('details').$type<unknown[]>(),
+  // Normalized, sim-ready per-unit loadouts derived from `details` (see
+  // @app/nikke syncedLoadout). Opaque to the DB — the sim consumes it. Present
+  // only when a sync fetched details. `syncLevel` is the account synchro level.
+  syncedLoadouts: jsonb('synced_loadouts').$type<unknown[]>(),
+  syncLevel: integer('sync_level'),
   syncedAt: timestamp('synced_at', { withTimezone: true })
     .notNull()
     .defaultNow(),

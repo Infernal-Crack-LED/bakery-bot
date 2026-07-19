@@ -17,6 +17,9 @@
  */
 
 import type { NewNikkeCharacter } from '@app/db';
+// The pure name helpers moved to the shared @app/nikke package; re-exported here
+// so existing `./match.js` importers keep working.
+import { normalizeName, slugify, acronym } from '@app/nikke';
 import { SHEET_NAME_OVERRIDES } from './overrides.js';
 import type { SheetBuildEntry, SheetCharacter } from './sheet.js';
 import type {
@@ -26,29 +29,7 @@ import type {
 } from './synergy.js';
 import { synergyCharacterUrl } from './synergy.js';
 
-/** Fuzzy match key: lowercase, drop annotations, punctuation → space. */
-export function normalizeName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\([^)]*\)/g, ' ') // (t), (treasure), (c) …
-    .replace(/[:|._,'’!/\\-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** Canonical id, e.g. "Anis: Star" → "anis-star" (matches Prydwen slugs). */
-export function slugify(name: string): string {
-  return normalizeName(name).replace(/\s+/g, '-');
-}
-
-/**
- * Auto-generated nickname: the initials of a multi-word name, so "Rapi: Red
- * Hood" → "rrh". Single-word names have no useful acronym → "".
- */
-export function acronym(name: string): string {
-  const words = normalizeName(name).split(' ').filter(Boolean);
-  return words.length >= 2 ? words.map((w) => w[0]).join('') : '';
-}
+export { normalizeName, slugify, acronym };
 
 export interface SyncInputs {
   synergyCharacters: SynergyCharacter[];

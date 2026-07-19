@@ -227,3 +227,41 @@ export function fetchUserCharacterDetails(
     fetchImpl
   );
 }
+
+/** One Outpost research track's account level: `tid` (1001 Personal, 110x Class,
+ *  120x Corporation) and `lv` (the rank). Multiply the matching
+ *  RecycleResearchStat per-rank bonus by `lv`. */
+export interface RecycleRoomResearch {
+  tid: number;
+  lv: number;
+}
+
+/** The account-level Outpost info we read: synchro level + research ranks. */
+export interface OutpostInfo {
+  synchro_level?: number;
+  recycle_room_researches?: RecycleRoomResearch[];
+}
+
+export interface UserOutpostResponse {
+  code: number;
+  msg?: string;
+  data?: { outpost_info?: OutpostInfo };
+}
+
+/**
+ * Fetch an account's Outpost profile (synchro level + Recycle-Research ranks per
+ * class/manufacturer) by `intl_open_id`. Account-level — one call covers every
+ * unit. Defaults to the env session's own account.
+ */
+export function fetchOutpostInfo(
+  intlOpenId?: string,
+  auth: BlablalinkAuth = blablalinkAuthFromEnv(),
+  fetchImpl: Fetch = fetch
+): Promise<UserOutpostResponse> {
+  return postGameProxy<UserOutpostResponse>(
+    'GetUserProfileOutpostInfo',
+    { intl_open_id: intlOpenId ?? auth.intlOpenId, nikke_area_id: auth.areaId },
+    auth,
+    fetchImpl
+  );
+}

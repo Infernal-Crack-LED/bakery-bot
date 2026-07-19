@@ -9,6 +9,8 @@ import { getUser, json, preflight } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
 import { getStoredRoster, upsertRoster } from '@/lib/roster-store';
 import { setCurrentAccount } from '@/lib/account-links';
+import { buildSyncedLoadouts } from '@/lib/synced-roster';
+import type { RawCharacterDetail } from '@app/nikke';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -86,6 +88,8 @@ export async function GET(req: NextRequest) {
         count: stored.characters.length,
         characters: stored.characters,
         details: wantDetails ? stored.details : undefined,
+        syncedLoadouts: wantDetails ? stored.syncedLoadouts : undefined,
+        syncLevel: stored.syncLevel ?? undefined,
         syncedAt: stored.syncedAt,
       });
     }
@@ -144,11 +148,32 @@ export async function GET(req: NextRequest) {
         ?.character_details ?? [];
   }
 
+  // Derive the sim-ready loadouts + synchro level from the details (best effort;
+  // a table/outpost failure must not fail the roster response).
+  let syncedLoadouts: unknown[] | undefined;
+  let syncLevel: number | undefined;
+  if (details) {
+    try {
+      const built = await buildSyncedLoadouts(
+        details as RawCharacterDetail[],
+        characters,
+        target,
+        auth
+      );
+      syncedLoadouts = built.syncedLoadouts;
+      syncLevel = built.syncLevel;
+    } catch (err) {
+      console.error('buildSyncedLoadouts failed', err);
+    }
+  }
+
   const syncedAt = await upsertRoster({
     openId: target,
     areaId: auth.areaId,
     characters,
     details,
+    syncedLoadouts,
+    syncLevel,
   });
   await rememberAccount();
 
@@ -158,6 +183,8 @@ export async function GET(req: NextRequest) {
     count: characters.length,
     characters,
     details,
+    syncedLoadouts,
+    syncLevel,
     syncedAt,
   });
 }

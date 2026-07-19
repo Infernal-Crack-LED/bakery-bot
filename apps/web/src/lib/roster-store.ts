@@ -34,8 +34,20 @@ export async function upsertRoster(input: {
   areaId: number;
   characters: RosterCharacter[];
   details?: unknown[];
+  syncedLoadouts?: unknown[];
+  syncLevel?: number;
 }): Promise<Date> {
   const syncedAt = new Date();
+  // Details and the derived loadouts travel together — only touch them when this
+  // sync actually fetched details (a list-only sync preserves the prior values).
+  const derived =
+    input.details !== undefined
+      ? {
+          details: input.details,
+          syncedLoadouts: input.syncedLoadouts ?? null,
+          syncLevel: input.syncLevel ?? null,
+        }
+      : {};
   await db
     .insert(nikkeRosters)
     .values({
@@ -43,6 +55,8 @@ export async function upsertRoster(input: {
       areaId: input.areaId,
       characters: input.characters,
       details: input.details ?? null,
+      syncedLoadouts: input.syncedLoadouts ?? null,
+      syncLevel: input.syncLevel ?? null,
       syncedAt,
     })
     .onConflictDoUpdate({
@@ -51,8 +65,7 @@ export async function upsertRoster(input: {
         areaId: input.areaId,
         characters: input.characters,
         syncedAt,
-        // Only touch details when this sync actually fetched them.
-        ...(input.details !== undefined ? { details: input.details } : {}),
+        ...derived,
       },
     });
   return syncedAt;

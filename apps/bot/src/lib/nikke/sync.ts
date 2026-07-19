@@ -22,6 +22,7 @@ import { eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import {
   characterPortraitUrl,
   deriveLevelMultiplier,
+  deriveTreasureItems,
   fetchBlablalinkRoster,
   fetchRoleData,
   parseBaseStats,
@@ -29,8 +30,7 @@ import {
   parseRoleColumns,
   parseSkillDescriptions,
   parseSkillLevels,
-} from './blablalink.js';
-import { deriveTreasureItems } from './favoriteItems.js';
+} from '@app/nikke';
 import { buildCharacters, normalizeName } from './match.js';
 import {
   BLABLALINK_RESOURCE_OVERRIDES,

@@ -162,6 +162,13 @@
       "when": 1784423476075,
       "tag": "0022_short_proteus",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1784430786546,
+      "tag": "0023_safe_mysterio",
+      "breakpoints": true
     }
   ]
 }

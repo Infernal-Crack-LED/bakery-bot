@@ -25,8 +25,8 @@ import {
   blablalinkAuthFromEnv,
   fetchUserCharacterDetails,
   type BlablalinkAuth,
-} from '@app/nikke';
-import { normalizeName, slugify } from './match.js';
+} from './blablalinkUser.js';
+import { normalizeName, slugify } from './names.js';
 
 type Fetch = typeof fetch;
 

@@ -7,7 +7,7 @@ import {
   resolveFavoriteItemRefs,
 } from './favoriteItems.js';
 import { resourceUrl } from './blablalink.js';
-import type { BlablalinkAuth } from '@app/nikke';
+import type { BlablalinkAuth } from './blablalinkUser.js';
 
 const AUTH: BlablalinkAuth = {
   gameToken: 't',
