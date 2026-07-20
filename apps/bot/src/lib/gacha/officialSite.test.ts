@@ -290,6 +290,25 @@ describe('checkOfficialSite', () => {
     expect(setFeedWatermark).toHaveBeenCalledWith(NOW_SEC);
   });
 
+  it('never stores/broadcasts when every LLM pass fails — retries next check', async () => {
+    const failingComplete = vi
+      .fn()
+      .mockRejectedValue(new Error('fetch failed'));
+    const sent: string[] = [];
+
+    const outcome = await checkOfficialSite({
+      complete: failingComplete,
+      fetchImpl: vi.fn() as never,
+      client: fakeClient(sent),
+    });
+
+    expect(outcome.newContentIds).toEqual([]);
+    expect(insertPatchUpdate).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(0);
+    // Watermark NOT advanced — the article is retried on the next trigger.
+    expect(setFeedWatermark).not.toHaveBeenCalled();
+  });
+
   it('short-circuits when the feature is opted out', async () => {
     vi.stubEnv('NIKKE_OFFICIAL_INGEST_DISABLED', '1');
     const outcome = await checkOfficialSite({ complete });

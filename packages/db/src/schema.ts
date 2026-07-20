@@ -258,16 +258,39 @@ export interface SkillLevels {
 }
 
 /**
+ * Skill cooldowns in **seconds**, one per skill slot. Sourced from the NIKKE
+ * community wiki (Fandom) because blablalink's roledata carries a cooldown for
+ * the **burst** (`ulti_skill_detail.skill_cooltime`) but NOT for skills 1 & 2 —
+ * the gap this fills. `null` means "no cooldown" (a passive skill, or the wiki's
+ * `N/A`); a number is the fixed cooldown. Cooldowns do NOT scale with skill
+ * level in NIKKE, so each is a single scalar (unlike `skillLevels`). `burst` is
+ * carried too for a one-stop read; it can be cross-checked against blablalink's
+ * roledata. Lives inside `skillDescriptions.cooldowns` (see below) — the same
+ * JSON the sim already reads — not in its own column.
+ */
+export interface SkillCooldowns {
+  skill1: number | null;
+  skill2: number | null;
+  burst: number | null;
+}
+
+/**
  * Skill prose (English), resolved from the same roledata skill-detail blocks with
  * every `{description_value_NN}` placeholder filled in at MAX LEVEL (index 9) and
  * blablalink's markup tags stripped. Resolving at level 10 keeps these numbers
  * equal to `skillLevels[*][*][9]` by construction, which is what the sim's
  * level-scaling matcher depends on. Supersedes Synergy's old skill_*_en prose.
+ *
+ * `cooldowns` is folded into this same object (from the Fandom wiki) so the sim,
+ * which already reads `skill_descriptions`, gets skill cooldowns without a new
+ * column. It's optional: null until the Fandom cooldown sync fills it, and the
+ * roledata backfill that writes skill1/2/burst leaves it untouched.
  */
 export interface SkillDescriptions {
   skill1: string; // from skill1_detail
   skill2: string; // from skill2_detail
   burst: string; // from ulti_skill_detail
+  cooldowns?: SkillCooldowns; // seconds per slot (null = passive); from Fandom
 }
 
 // ─── blablalink roledata snapshot (verbatim game-source fields) ─────────────
@@ -548,6 +571,7 @@ export const nikkeCharacters = pgTable('nikke_characters', {
   // source of truth for skills (skill text no longer comes from Synergy). Null
   // until that character's roledata has been fetched.
   skillLevels: jsonb('skill_levels').$type<SkillLevels>(),
+  // Resolved skill prose + (folded in) skill cooldowns — see SkillDescriptions.
   skillDescriptions: jsonb('skill_descriptions').$type<SkillDescriptions>(),
   // For Treasure (Favorite-Item) units only: the blablalink Favorite Item id
   // (favorite_item_tid) whose per-level skill data was folded into skill_levels /

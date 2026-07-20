@@ -18,13 +18,15 @@ import {
   nikkeSyncRuns,
   NIKKE_LEVEL_MULTIPLIER_KEY,
 } from '@app/db';
-import { eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import {
   characterPortraitUrl,
   deriveLevelMultiplier,
   deriveTreasureItems,
+  fandomTitle,
   fetchBlablalinkRoster,
   fetchRoleData,
+  fetchSkillCooldowns,
   parseBaseStats,
   parseFavoriteItemSkills,
   parseRoleColumns,
@@ -34,6 +36,7 @@ import {
 import { buildCharacters, normalizeName } from './match.js';
 import {
   BLABLALINK_RESOURCE_OVERRIDES,
+  FANDOM_TITLE_OVERRIDES,
   PRYDWEN_SLUG_OVERRIDES,
 } from './overrides.js';
 import { PRYDWEN_TIERS } from './prydwen-data.js';
@@ -63,6 +66,8 @@ export interface SyncSummary {
   baseStatsFetched: number;
   /** How many Treasure units had their skills set from their Favorite Item this run. */
   favoriteItemSkills: number;
+  /** How many characters got their skill cooldowns from the Fandom wiki this run. */
+  skillCooldowns: number;
   /** How many characters had their blablalink portrait URL set/updated. */
   portraits: number;
   errors: string[];
@@ -255,6 +260,92 @@ async function syncFavoriteItemSkills(): Promise<FavoriteItemResult> {
         `favorite-item ${character.name}: ${(error as Error).message}`
       );
     }
+  }
+
+  return { fetched, unmatched, errors };
+}
+
+interface SkillCooldownResult {
+  fetched: number;
+  unmatched: string[];
+  errors: string[];
+}
+
+/**
+ * Skill cooldowns from the Fandom wiki — the ONE thing blablalink's roledata
+ * lacks: the cooldowns of skills 1 & 2 (it carries only the burst's). Each
+ * character's `{{Skill table}}` gives `skillcd1/2/3` in seconds (passives report
+ * `N/A` → null). We FOLD these into the existing `skill_descriptions` JSON (as
+ * `skill_descriptions.cooldowns`) — the same blob the sim already reads — rather
+ * than a separate column.
+ *
+ * So this must run AFTER the roledata backfill (which writes `skill_descriptions`)
+ * and the Favorite-Item step (which overwrites it for Treasure units), so neither
+ * clobbers the cooldowns we add — the run order in runNikkeSync guarantees that.
+ *
+ * Fetch-only-new: gated on rows that HAVE `skill_descriptions` but no `cooldowns`
+ * key yet, so once every character has cooldowns the step makes ZERO network
+ * calls. Each character is matched to its wiki page by name (`fandomTitle`) with
+ * a manual override (FANDOM_TITLE_OVERRIDES) for alt/skin/collab units the wiki
+ * titles differently. A missing page or a page without a skill table is reported
+ * as `unmatched` (a human adds an override); a real fetch/API failure degrades
+ * the run to partial.
+ */
+async function syncSkillCooldowns(): Promise<SkillCooldownResult> {
+  const missing = await db
+    .select({
+      id: nikkeCharacters.id,
+      name: nikkeCharacters.name,
+      skillDescriptions: nikkeCharacters.skillDescriptions,
+    })
+    .from(nikkeCharacters)
+    .where(
+      and(
+        isNotNull(nikkeCharacters.skillDescriptions),
+        sql`${nikkeCharacters.skillDescriptions} -> 'cooldowns' is null`
+      )
+    );
+  if (missing.length === 0) {
+    return { fetched: 0, unmatched: [], errors: [] };
+  }
+
+  const unmatched: string[] = [];
+  const errors: string[] = [];
+  let fetched = 0;
+
+  for (const character of missing) {
+    const existing = character.skillDescriptions;
+    if (!existing) {
+      continue; // the query guarantees non-null; keeps the merge below type-safe
+    }
+    const title =
+      FANDOM_TITLE_OVERRIDES[character.id] ?? fandomTitle(character.name);
+    let cooldowns;
+    try {
+      cooldowns = await fetchSkillCooldowns(title);
+    } catch (error) {
+      const message = (error as Error).message;
+      // A missing page just needs a title override — report, don't fail the run.
+      if (/missingtitle/.test(message)) {
+        unmatched.push(character.name);
+      } else {
+        errors.push(`skill-cooldowns ${character.name}: ${message}`);
+      }
+      continue;
+    }
+    // Page exists but has no skill table → likely the wrong page; report it.
+    if (cooldowns == null) {
+      unmatched.push(character.name);
+      continue;
+    }
+    await db
+      .update(nikkeCharacters)
+      .set({
+        skillDescriptions: { ...existing, cooldowns },
+        updatedAt: sql`now()`,
+      })
+      .where(eq(nikkeCharacters.id, character.id));
+    fetched += 1;
   }
 
   return { fetched, unmatched, errors };
@@ -453,6 +544,16 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
   );
   errors.push(...favoriteItem.errors);
 
+  // Skill cooldowns from the Fandom wiki — fills the skill-1/2 cooldown gap
+  // blablalink's roledata leaves. Fetch-only-new (no calls once every character
+  // has cooldowns). A failure here degrades the run to "partial".
+  const skillCooldowns = await guarded<SkillCooldownResult>(
+    'skill-cooldowns',
+    syncSkillCooldowns,
+    { fetched: 0, unmatched: [], errors: [] }
+  );
+  errors.push(...skillCooldowns.errors);
+
   // Derive high-res blablalink portraits from the resource_ids we now have. Runs
   // AFTER base stats so freshly-fetched resource_ids are included. Pure derivation
   // (no network); a failure degrades to "partial" like any other source.
@@ -478,12 +579,14 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
         prydwenTiers: prydwenMatched,
         baseStatsFetched: baseStats.fetched,
         favoriteItemSkills: favoriteItem.fetched,
+        skillCooldowns: skillCooldowns.fetched,
         portraits,
       },
       unmatched: {
         ...unmatched,
         baseStats: baseStats.unmatched,
         favoriteItem: favoriteItem.unmatched,
+        skillCooldowns: skillCooldowns.unmatched,
       },
       errors,
     },
@@ -496,6 +599,7 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
     prydwenTiers: prydwenMatched,
     baseStatsFetched: baseStats.fetched,
     favoriteItemSkills: favoriteItem.fetched,
+    skillCooldowns: skillCooldowns.fetched,
     portraits,
     errors,
     unmatched: {

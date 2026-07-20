@@ -9,10 +9,12 @@
  *  - blablalinkUser    the authenticated user API (roster + detail by open id)
  *  - favoriteItems     the Favorite Item (Treasure) resolver
  *  - syncedLoadout     normalize GetUserCharacterDetails → the sim's loadout
+ *  - fandom            the community-wiki client for skill cooldowns
  *  - names             pure name-normalization helpers
  */
 export * from './blablalink.js';
 export * from './blablalinkUser.js';
 export * from './favoriteItems.js';
 export * from './syncedLoadout.js';
+export * from './fandom.js';
 export * from './names.js';
