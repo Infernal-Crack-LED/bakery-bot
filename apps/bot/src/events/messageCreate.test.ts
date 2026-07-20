@@ -7,6 +7,32 @@ vi.mock('../lib/guildConfig.js', async (importOriginal) => ({
   getGuildConfig: vi.fn(),
 }));
 
+// Fake the DB-backed atomic claim: `claimedIds` mirrors the unique constraint
+// on message_id, so two concurrent chains for the same message id only let
+// ONE `.returning()` come back non-empty — same as the real Postgres insert.
+const { insert, claimedIds } = vi.hoisted(() => {
+  const claimedIds = new Set<string>();
+  let pendingMessageId: string | undefined;
+  const returning = vi.fn(() => {
+    if (pendingMessageId === undefined || claimedIds.has(pendingMessageId)) {
+      return Promise.resolve([]);
+    }
+    claimedIds.add(pendingMessageId);
+    return Promise.resolve([{ messageId: pendingMessageId }]);
+  });
+  const onConflictDoNothing = vi.fn(() => ({ returning }));
+  const values = vi.fn((row: { messageId: string }) => {
+    pendingMessageId = row.messageId;
+    return { onConflictDoNothing };
+  });
+  const insert = vi.fn(() => ({ values }));
+  return { insert, values, onConflictDoNothing, returning, claimedIds };
+});
+vi.mock('@app/db', () => ({
+  db: { insert },
+  newsTimestampReplies: {},
+}));
+
 // The official-site check is gated to the official community guild and has its
 // own tests; the fake tweets here use a different guild so it never fires.
 import { getGuildConfig } from '../lib/guildConfig.js';
@@ -24,6 +50,7 @@ import { DEFAULT_OFFSET_MINUTES, event } from './messageCreate.js';
 const NEWS_CHANNEL = 'news-channel-1';
 
 beforeEach(() => {
+  claimedIds.clear();
   // By default the guild's news channel is NEWS_CHANNEL.
   vi.mocked(getGuildConfig).mockResolvedValue({
     newsChannelId: NEWS_CHANNEL,
@@ -219,6 +246,25 @@ describe('messageCreate (NIKKE news auto-timestamp)', () => {
 
     await event.execute(message as never);
     await event.execute(message as never); // e.g. a later edit
+
+    expect(reply).toHaveBeenCalledOnce();
+  });
+
+  it('replies only once when Create and Update race for the same message', async () => {
+    // Discord can fire MessageCreate and a MessageUpdate (embed unfurl, or a
+    // further edit) for the same post close enough together that both
+    // in-process handler calls pass the in-memory dedupe check before either
+    // finishes — the actual cause of the reported double-reply. Only the DB's
+    // atomic claim (mocked above via `claimedIds`) should let one through.
+    const { message, reply } = fakeMessage({
+      id: 'race-1',
+      embeds: [{ description: 'Event at 2025-07-10 20:00 UTC' }],
+    });
+
+    await Promise.all([
+      event.execute(message as never),
+      event.execute(message as never),
+    ]);
 
     expect(reply).toHaveBeenCalledOnce();
   });

@@ -129,6 +129,23 @@ export const quotes = pgTable(
 export type Quote = typeof quotes.$inferSelect;
 export type NewQuote = typeof quotes.$inferInsert;
 
+/**
+ * Message ids already stamped with the NIKKE news auto-timestamp reply (see
+ * apps/bot/src/events/messageCreate.ts). Durable so a bot restart between two
+ * Discord edits of the same tweet (e.g. TweetShift's embed resolving in
+ * several steps) can't re-post a duplicate reply — an in-memory Set alone
+ * loses this bookkeeping on every restart.
+ */
+export const newsTimestampReplies = pgTable('news_timestamp_replies', {
+  messageId: text('message_id').primaryKey(),
+  guildId: text('guild_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type NewsTimestampReply = typeof newsTimestampReplies.$inferSelect;
+
 // ─── NIKKE character data ───────────────────────────────────────────────────
 // Aggregated from Tsareena's sheet + Prydwen + Nikke Synergy by the daily sync,
 // plus one-time base stats from blablalink (see apps/bot/src/lib/nikke). These
