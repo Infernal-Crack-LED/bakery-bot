@@ -67,6 +67,20 @@ export const TREASURE_SYNERGY_IDS: Record<string, number> = {
   moran: 200,
 };
 
+/**
+ * Fandom wiki page-title overrides: our canonical id → the wiki page title, for
+ * characters whose page isn't `name.replace(/ /g, '_')` (see fandomTitle). Add an
+ * entry when a character shows up in a sync run's `sources.unmatched.skillCooldowns`
+ * list — usually alt/skin units (which the wiki titles differently) or collab
+ * units. The value is the exact page title (spaces as underscores), e.g.
+ * `Snow_White:_Innocent_Days`. An entry pointing at a nonexistent page just stays
+ * reported as unmatched.
+ *
+ *   key   = canonical character id (slug)
+ *   value = Fandom wiki page title
+ */
+export const FANDOM_TITLE_OVERRIDES: Record<string, string> = {};
+
 export const PRYDWEN_SLUG_OVERRIDES: Record<string, string> = {
   // Alt/skin units: reversed word order on Prydwen.
   'anis-sparkling-summer': 'sparkling-summer-anis',
