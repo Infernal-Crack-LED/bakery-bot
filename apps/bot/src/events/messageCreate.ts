@@ -12,6 +12,7 @@ import {
   checkOfficialSite,
   isUpdateAnnouncementTweet,
 } from '../lib/gacha/officialSite.js';
+import { claimMessageStamp } from '../lib/newsTimestamps.js';
 import type { Event } from '../types.js';
 
 /**
@@ -39,10 +40,17 @@ import type { Event } from '../types.js';
 export const DEFAULT_OFFSET_MINUTES = 9 * 60; // UTC+9
 
 /**
- * Message ids we've already stamped, so the create + the later embed-unfurl
- * update (and any further edits) don't each produce a reply. In-memory is fine:
- * the worst case after a restart is re-stamping a single edited post. Capped so
- * it can't grow without bound.
+ * Message ids we've already stamped, so a later embed-unfurl update or edit
+ * skips a DB round-trip for a post we already know we handled. This is a
+ * same-process fast-path cache only — the authoritative check is the atomic
+ * DB claim in newsTimestamps.ts (claimMessageStamp). A plain in-memory check
+ * here isn't enough on its own: Discord can fire MessageCreate and a
+ * MessageUpdate (or several updates) for the same post close enough together
+ * that both handler calls pass the `stamped.has()` check before either has
+ * awaited its way to marking it — a classic check-then-act race — which is
+ * what caused the bot to reply to the same tweet twice. The DB's primary key
+ * on message_id, not this Set, is what actually prevents that. Capped so it
+ * can't grow without bound.
  */
 const stamped = new Set<string>();
 function rememberStamped(id: string): void {
@@ -102,8 +110,15 @@ function messageText(message: Message): string {
  * Handle a possible news post from either MessageCreate or MessageUpdate: if the
  * message is in a watched channel and mentions an event time, reply with a
  * local-time stamp. De-duplicated so a post is only ever stamped once.
+ *
+ * `source` is only for logging — it identifies which Discord event drove this
+ * call, so production logs can show whether a double-reply came from a
+ * Create/Update race (see the `stamped` doc comment above).
  */
-export async function handleNewsMessage(message: Message): Promise<void> {
+export async function handleNewsMessage(
+  message: Message,
+  source: 'create' | 'update' = 'create'
+): Promise<void> {
   if (!message.inGuild()) {
     return;
   }
@@ -117,12 +132,23 @@ export async function handleNewsMessage(message: Message): Promise<void> {
   if (!message.webhookId && !message.author?.bot) {
     return;
   }
+
+  console.log(
+    `[news] ${source} message=${message.id} guild=${message.guildId} channel=${message.channelId} webhookId=${message.webhookId ?? 'none'} author=${message.author?.id ?? 'unknown'}`
+  );
+
   if (stamped.has(message.id)) {
+    console.log(
+      `[news] ${source} message=${message.id} already in-memory stamped, skipping`
+    );
     return;
   }
 
   const watched = await resolveNewsChannelIds(message.guildId);
   if (!watched.has(message.channelId)) {
+    console.log(
+      `[news] ${source} message=${message.id} channel not watched, skipping`
+    );
     return;
   }
 
@@ -145,6 +171,9 @@ export async function handleNewsMessage(message: Message): Promise<void> {
   }
 
   if (!text) {
+    console.log(
+      `[news] ${source} message=${message.id} has no text yet (likely link-only, awaiting embed)`
+    );
     return;
   }
 
@@ -152,10 +181,30 @@ export async function handleNewsMessage(message: Message): Promise<void> {
   if (stamps.length === 0) {
     // Don't remember it — a "link only" post arrives empty and only gets its
     // embed (and thus its date) on a later update; let that update try again.
+    console.log(
+      `[news] ${source} message=${message.id} has text but no date/time found`
+    );
     return;
   }
 
+  console.log(
+    `[news] ${source} message=${message.id} found ${stamps.length} stamp(s), attempting claim`
+  );
+
   rememberStamped(message.id);
+
+  // Atomic claim: whichever call (this one, a racing concurrent call, or an
+  // earlier run before a restart) wins the DB's message_id primary key is the
+  // only one that replies. Not `stamps.length === 0`'s "don't remember" case
+  // above — once we HAVE a parseable date, only one reply should ever go out.
+  if (!(await claimMessageStamp(message.id, message.guildId))) {
+    console.warn(
+      `[news] ${source} message=${message.id} DB claim already held — blocked a duplicate reply`
+    );
+    return;
+  }
+
+  console.log(`[news] ${source} message=${message.id} claimed, posting reply`);
 
   const content = stamps
     .map(
@@ -185,6 +234,6 @@ export async function handleNewsMessage(message: Message): Promise<void> {
 export const event: Event<Events.MessageCreate> = {
   name: Events.MessageCreate,
   execute: async (message: Message) => {
-    await handleNewsMessage(message);
+    await handleNewsMessage(message, 'create');
   },
 };

@@ -19,7 +19,7 @@ export const event: Event<Events.MessageUpdate> = {
       const message = newMessage.partial
         ? await newMessage.fetch()
         : newMessage;
-      await handleNewsMessage(message);
+      await handleNewsMessage(message, 'update');
     } catch (error) {
       console.error('[news] failed to handle message update', error);
     }

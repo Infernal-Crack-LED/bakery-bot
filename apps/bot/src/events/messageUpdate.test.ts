@@ -5,6 +5,29 @@ vi.mock('../lib/guildConfig.js', async (importOriginal) => ({
   getGuildConfig: vi.fn(),
 }));
 
+// Fake the DB-backed atomic claim used by handleNewsMessage's dedupe (see
+// messageCreate.test.ts for the fuller explanation of why this exists).
+const { insert } = vi.hoisted(() => {
+  let pendingMessageId: string | undefined;
+  const returning = vi.fn(() => {
+    if (pendingMessageId === undefined) {
+      return Promise.resolve([]);
+    }
+    return Promise.resolve([{ messageId: pendingMessageId }]);
+  });
+  const onConflictDoNothing = vi.fn(() => ({ returning }));
+  const values = vi.fn((row: { messageId: string }) => {
+    pendingMessageId = row.messageId;
+    return { onConflictDoNothing };
+  });
+  const insert = vi.fn(() => ({ values }));
+  return { insert, values, onConflictDoNothing, returning };
+});
+vi.mock('@app/db', () => ({
+  db: { insert },
+  newsTimestampReplies: {},
+}));
+
 import { getGuildConfig } from '../lib/guildConfig.js';
 import { event } from './messageUpdate.js';
 

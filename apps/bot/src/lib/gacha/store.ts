@@ -19,9 +19,14 @@ import {
   type NikkePatchUpdate,
   type ProposedGachaEvent,
 } from '@app/db';
-import { desc, eq, isNotNull } from 'drizzle-orm';
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { proposedDate } from './validate.js';
 import { configuredNewsChannelIds } from '../guildConfig.js';
+
+/** Same instant, treating null (unstated) as its own distinct value. */
+function sameInstant(a: Date | null, b: Date | null): boolean {
+  return a === null || b === null ? a === b : a.getTime() === b.getTime();
+}
 
 /** All calendar rows for a guild (the /calendar + reminder input). */
 export async function listGuildEvents(guildId: string): Promise<GachaEvent[]> {
@@ -34,8 +39,12 @@ export async function listGuildEvents(guildId: string): Promise<GachaEvent[]> {
 /**
  * Upsert extracted events into `gacha_events` for one guild — the ONLY write
  * path to the calendar. Conflict target is (guild, type, name), so re-reading
- * an updated patch updates in place. Reminder-sent stamps are RESET on update
- * so new times re-arm the reminders. Returns how many events were written.
+ * an updated patch updates in place. A reminder-sent stamp is RESET only when
+ * its own timestamp actually changed from the stored row, so new times re-arm
+ * the reminders but re-reading an unchanged (or newly-resolved-to-the-same)
+ * date can't re-trigger a reminder that already fired — this is what caused
+ * "After Maintenance" events (whose start resolves across a later article) to
+ * double-post their start reminder. Returns how many events were written.
  */
 export async function applyEventsToGuild(
   guildId: string,
@@ -43,18 +52,35 @@ export async function applyEventsToGuild(
   sourceContentId: string
 ): Promise<number> {
   for (const p of events) {
+    const startsAt = proposedDate(p.start);
+    const endsAt = proposedDate(p.end);
+
+    const existing = await db.query.gachaEvents.findFirst({
+      where: and(
+        eq(gachaEvents.guildId, guildId),
+        eq(gachaEvents.type, p.type),
+        eq(gachaEvents.name, p.name)
+      ),
+    });
+
     const row = {
       guildId,
       name: p.name,
       type: p.type,
-      startsAt: proposedDate(p.start),
-      endsAt: proposedDate(p.end),
+      startsAt,
+      endsAt,
       characters: p.characters,
       notes: p.notes,
       flags: p.flags,
       sourceContentId,
-      startReminderSentAt: null,
-      endReminderSentAt: null,
+      startReminderSentAt:
+        existing && sameInstant(existing.startsAt, startsAt)
+          ? existing.startReminderSentAt
+          : null,
+      endReminderSentAt:
+        existing && sameInstant(existing.endsAt, endsAt)
+          ? existing.endReminderSentAt
+          : null,
       updatedAt: new Date(),
     };
     await db
