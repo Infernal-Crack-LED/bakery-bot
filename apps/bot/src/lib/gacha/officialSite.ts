@@ -263,6 +263,20 @@ async function runCheck(
 
     const article = await fetchArticle(item.contentId, cmsOpts);
     const { tldr, diagnostics } = await extractTldr(article.text, complete, {});
+    if (diagnostics.passes === 0) {
+      // Every LLM pass failed (e.g. the completion endpoint was unreachable) —
+      // extractTldr's empty fallback would look identical to a genuinely
+      // empty patch (no date, all raids ❌). Never store/broadcast that as if
+      // it were real. Un-mark it so a later trigger retries, and stop this
+      // check here so the watermark isn't advanced past it — items after this
+      // one in `fresh` are newer and get their own chance on a later check.
+      summarized.delete(item.contentId);
+      console.error(
+        `[official] extraction failed for "${item.title}" (${item.contentId}): ` +
+          diagnostics.errors.join('; ')
+      );
+      break;
+    }
     const { events } = await ingestAnnouncement(article.text, complete);
 
     // Feed the calendar with any dated events (idempotent upsert).

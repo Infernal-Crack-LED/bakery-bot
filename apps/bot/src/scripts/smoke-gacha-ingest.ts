@@ -4,11 +4,12 @@
  *   npm run smoke:gacha -- path/to/announcement.txt [runs]
  *
  * Reads an announcement text file, runs the REAL ingestion pipeline
- * (double-run by default) against the configured LLM endpoint
- * (GACHA_LLM_URL, default http://127.0.0.1:8770/v1), and prints the proposal
- * + diagnostics. Touches NO database and NO Discord — it exercises exactly
- * the parse path the official-site check uses, so it's the way to sanity-check
- * the model/endpoint the calendar extraction depends on.
+ * (double-run by default) against the configured model (Claude API when
+ * ANTHROPIC_API_KEY is set, else the local llmBaseUrl() endpoint — see
+ * llmClient.ts), and prints the proposal + diagnostics. Touches NO database
+ * and NO Discord — it exercises exactly the parse path the official-site
+ * check uses, so it's the way to sanity-check the model the calendar
+ * extraction depends on.
  */
 import '../loadEnv.js';
 import { readFileSync } from 'node:fs';
@@ -24,8 +25,12 @@ if (!file) {
 const text = readFileSync(file, 'utf8');
 const runs = runsArg ? Math.max(1, Number(runsArg)) : undefined;
 
+const usingClaude =
+  !process.env.GACHA_LLM_PREFER_LOCAL &&
+  !!process.env.ANTHROPIC_API_KEY?.trim();
+const target = usingClaude ? 'Claude API' : llmBaseUrl();
 console.log(
-  `[smoke] ${file} (${text.length} chars) → ${llmBaseUrl()} (${runs ?? 2} run(s))`
+  `[smoke] ${file} (${text.length} chars) → ${target} (${runs ?? 2} run(s))`
 );
 const startedAt = Date.now();
 
