@@ -898,6 +898,40 @@ export type UserTeam = typeof userTeams.$inferSelect;
 export type NewUserTeam = typeof userTeams.$inferInsert;
 
 /**
+ * NIKKE-sim saved profiles — a generic, kind-tagged store for reusable save
+ * data. One row per (Discord user, kind, name). `kind` discriminates the payload
+ * shape so the same table serves many features: 'include'/'exclude' Nikke lists
+ * today, positioned team/roster builds later. `code` is an opaque base64url
+ * blob the sim encodes/decodes per kind (see nikke-sim web/src/auth.ts) — the DB
+ * never interprets it, so new kinds (e.g. teams that remember order/location)
+ * need no schema change.
+ */
+export const userProfiles = pgTable(
+  'user_profiles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    discordId: text('discord_id').notNull(),
+    kind: text('kind').notNull(),
+    name: text('name').notNull(),
+    code: text('code').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index('user_profiles_discord_id_idx').on(t.discordId),
+    uniqueIndex('user_profiles_discord_id_kind_name_uq').on(
+      t.discordId,
+      t.kind,
+      t.name
+    ),
+  ]
+);
+
+export type UserProfile = typeof userProfiles.$inferSelect;
+export type NewUserProfile = typeof userProfiles.$inferInsert;
+
+/**
  * Persisted NIKKE roster snapshots, keyed by the account's blablalink open id
  * (NOT the Discord user — one person may own several NIKKE accounts, so the open
  * id the caller supplies is the identity). Written by the web app's roster sync
