@@ -19,20 +19,20 @@ JSON, (3) interactive commands that query the DB and render PNG infographics.
 
 ## Commands overview
 
-| Command | Type | What it does |
-|---------|------|-------------|
-| `/sim` | Link | Links nikkesim.app |
-| `/guides` | Edit | Add nikkesim.app as first entry in existing GUIDES array |
-| `/rostergen` | Link | Links nikkesim.app/roster |
-| `/mechanics` | Link | Links nikkesim.app/mechanics |
-| `/doll` | Embed | Doll FAQ (5 items) + link to nikkesim.app/doll |
-| `/dps` | Data+Image | DPS chart PNG (default: solo 8/12 core 100 ele advantage); optional element filter or `neutral` |
-| `/nikke` | Edit | Add sim rank field to existing `/nikke` embed (same cell as /dps default) |
-| `/ol` | Data | Default 8/12 OL roll table (Elem+ATK T11 × 4 pieces) + link to nikkesim.app/olsim |
-| `/bp` | Data | Generic charge-speed frame table by default; optional character input for per-unit breakpoints; link to nikkesim.app/charge |
-| `/teams` | Interactive | Numbered list of saved teams (select menu) → render team card PNG + link; optional name input skips listing |
-| `/roster` | Interactive | Same as /teams but for saved rosters |
-| `/blabla` | DB lookup | Links the user's blablalink profile if they've synced on nikkesim.app |
+| Command      | Type        | What it does                                                                                                                |
+| ------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `/sim`       | Link        | Links nikkesim.app                                                                                                          |
+| `/guides`    | Edit        | Add nikkesim.app as first entry in existing GUIDES array                                                                    |
+| `/rostergen` | Link        | Links nikkesim.app/roster                                                                                                   |
+| `/mechanics` | Link        | Links nikkesim.app/mechanics                                                                                                |
+| `/doll`      | Embed       | Doll FAQ (5 items) + link to nikkesim.app/doll                                                                              |
+| `/dps`       | Data+Image  | DPS chart PNG (default: solo 8/12 core 100 ele advantage); optional element filter or `neutral`                             |
+| `/nikke`     | Edit        | Add sim rank field to existing `/nikke` embed (same cell as /dps default)                                                   |
+| `/ol`        | Data        | Default 8/12 OL roll table (Elem+ATK T11 × 4 pieces) + link to nikkesim.app/olsim                                           |
+| `/bp`        | Data        | Generic charge-speed frame table by default; optional character input for per-unit breakpoints; link to nikkesim.app/charge |
+| `/teams`     | Interactive | Numbered list of saved teams (select menu) → render team card PNG + link; optional name input skips listing                 |
+| `/roster`    | Interactive | Same as /teams but for saved rosters                                                                                        |
+| `/blabla`    | DB lookup   | Links the user's blablalink profile if they've synced on nikkesim.app                                                       |
 
 ---
 
@@ -132,11 +132,11 @@ node-canvas)").
 **Isomorphic share modules** — copy from nikke-sim `src/share/` into
 `apps/bot/src/lib/nikke-sim/`:
 
-| File | Purpose |
-|------|---------|
-| `build-code.ts` | Decode saved team/roster build codes (`decodeBuild()`) |
-| `teamCard.ts` | Render team/roster card PNGs (`drawTeamCard()`, `drawRosterCard()`) |
-| `dpsChart.ts` | Render DPS chart PNGs (`drawDpsChart()`) |
+| File            | Purpose                                                             |
+| --------------- | ------------------------------------------------------------------- |
+| `build-code.ts` | Decode saved team/roster build codes (`decodeBuild()`)              |
+| `teamCard.ts`   | Render team/roster card PNGs (`drawTeamCard()`, `drawRosterCard()`) |
+| `dpsChart.ts`   | Render DPS chart PNGs (`drawDpsChart()`)                            |
 
 These are dependency-free TypeScript. They import only from each other
 (`dpsChart.ts` imports types from `teamCard.ts`). The `Canvas2DLike` interface
@@ -177,7 +177,7 @@ New file `apps/bot/src/commands/utility/dps.ts`.
 
 - Fetch cached `dpschart.json` → extract the default cell → build `DpsChartData`
   (title, bars with name/element/dps/imageUrl) → render PNG via `drawDpsChart()`
-  + `@napi-rs/canvas` → post as `AttachmentBuilder`.
+  - `@napi-rs/canvas` → post as `AttachmentBuilder`.
 - Optional `element` string option: filter bars to units of that element.
   Special value `neutral` → use the `solo:neutral:c100:8of12` cell instead.
 - Embed footer links `https://www.nikkesim.app/dpschart`.
@@ -212,8 +212,10 @@ Output shape:
 {
   "generatedAt": "…",
   "config": { "lines": ["Elem DMG T11", "ATK T11"], "pieces": 4 },
-  "perPiece": [{ "expRolls": 36.2, "p95": 89, "modules": 65, "modulesP95": 161 }],
-  "total": { "expRolls": 145, "p95": 312, "modules": 263, "modulesP95": 564 }
+  "perPiece": [
+    { "expRolls": 36.2, "p95": 89, "modules": 65, "modulesP95": 161 },
+  ],
+  "total": { "expRolls": 145, "p95": 312, "modules": 263, "modulesP95": 564 },
 }
 ```
 
@@ -243,7 +245,7 @@ New file `apps/bot/src/commands/utility/bp.ts`.
   "generatedAt": "…",
   "generic": {
     "chargeFrames": [{ "frames": 59, "csNeeded": 0.85, "seconds": 0.983 }],
-    "note": "Standard 60-frame charge weapon (1s base)"
+    "note": "Standard 60-frame charge weapon (1s base)",
   },
   "characters": {
     "<slug>": {
@@ -252,13 +254,14 @@ New file `apps/bot/src/commands/utility/bp.ts`.
       "baseChargeFrames": 45,
       "baseAmmo": 6,
       "chargeFrames": [{ "frames": 44, "csNeeded": 1.12 }],
-      "ammoBreakpoints": [{ "ammo": 7, "minPct": 16.67, "linesNeeded": 1 }]
-    }
-  }
+      "ammoBreakpoints": [{ "ammo": 7, "minPct": 16.67, "linesNeeded": 1 }],
+    },
+  },
 }
 ```
 
 Bot behavior:
+
 - **Default (no character):** Show the generic charge-speed frame table +
   a note that per-character data needs a character input.
 - **With character input:** Look up the character in `breakpoints.json` →
@@ -309,15 +312,21 @@ to `interactionCreate.ts` needed). Defer the reply first since rendering
 takes time.
 
 ```ts
-import { ActionRowBuilder, StringSelectMenuBuilder, ComponentType } from 'discord.js';
+import {
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  ComponentType,
+} from 'discord.js';
 
 const menu = new StringSelectMenuBuilder()
   .setCustomId('team-pick')
   .setPlaceholder('Pick a team…')
-  .addOptions(teams.map((t, i) => ({
-    label: `${i + 1}. ${t.name}`.slice(0, 100),
-    value: t.id,
-  })));
+  .addOptions(
+    teams.map((t, i) => ({
+      label: `${i + 1}. ${t.name}`.slice(0, 100),
+      value: t.id,
+    }))
+  );
 ```
 
 **Infographic rendering:**
@@ -344,7 +353,7 @@ Same pattern as `/teams` but queries `user_profiles` with the roster kind:
 const rosters = await db.query.userProfiles.findMany({
   where: and(
     eq(userProfiles.discordId, interaction.user.id),
-    eq(userProfiles.kind, 'roster'),  // verify the actual kind string during impl
+    eq(userProfiles.kind, 'roster') // verify the actual kind string during impl
   ),
 });
 ```
@@ -369,7 +378,7 @@ import { and, eq } from 'drizzle-orm';
 const link = await db.query.nikkeAccountLinks.findFirst({
   where: and(
     eq(nikkeAccountLinks.discordId, interaction.user.id),
-    eq(nikkeAccountLinks.current, true),
+    eq(nikkeAccountLinks.current, true)
   ),
 });
 ```
@@ -394,13 +403,13 @@ construction.
 All changes are in **non-protected paths**. No changes to `src/engine/**`,
 `data/**`, `src/skills/overrides/**`, or regression snapshots.
 
-| Change | File(s) | Phase |
-|--------|---------|-------|
-| Extract doll FAQ data | `web/src/doll-faq-data.ts` (new), `web/src/App.tsx` (import) | 1 |
-| Extract breakpoint math | `src/breakpoints.ts` (new), `web/src/App.tsx` (import) | 2 |
-| Precompute OL default results | `scripts/build-ol-default.ts` (new), `package.json` | 2 |
-| Precompute breakpoints JSON | `scripts/build-breakpoints.ts` (new), `package.json` | 2 |
-| Add build steps to `build:deploy` | `package.json` | 2 |
+| Change                            | File(s)                                                      | Phase |
+| --------------------------------- | ------------------------------------------------------------ | ----- |
+| Extract doll FAQ data             | `web/src/doll-faq-data.ts` (new), `web/src/App.tsx` (import) | 1     |
+| Extract breakpoint math           | `src/breakpoints.ts` (new), `web/src/App.tsx` (import)       | 2     |
+| Precompute OL default results     | `scripts/build-ol-default.ts` (new), `package.json`          | 2     |
+| Precompute breakpoints JSON       | `scripts/build-breakpoints.ts` (new), `package.json`         | 2     |
+| Add build steps to `build:deploy` | `package.json`                                               | 2     |
 
 ---
 
@@ -408,29 +417,29 @@ All changes are in **non-protected paths**. No changes to `src/engine/**`,
 
 ### bakery-bot
 
-| Path | Role |
-|------|------|
-| `apps/bot/src/commands/utility/` | All new command files go here |
-| `apps/bot/src/lib/linkCommand.ts` | `makeLinkCommand()` factory for link commands |
-| `apps/bot/src/lib/nikke-sim/` | (new) Copied isomorphic share modules |
-| `apps/bot/src/types.ts` | `Command` interface (data + execute + autocomplete?) |
-| `apps/bot/src/events/interactionCreate.ts` | Routes autocomplete + slash commands (no changes needed) |
-| `packages/db/src/schema.ts` | `userTeams`, `userProfiles`, `nikkeAccountLinks`, `nikkeRosters` tables |
+| Path                                       | Role                                                                    |
+| ------------------------------------------ | ----------------------------------------------------------------------- |
+| `apps/bot/src/commands/utility/`           | All new command files go here                                           |
+| `apps/bot/src/lib/linkCommand.ts`          | `makeLinkCommand()` factory for link commands                           |
+| `apps/bot/src/lib/nikke-sim/`              | (new) Copied isomorphic share modules                                   |
+| `apps/bot/src/types.ts`                    | `Command` interface (data + execute + autocomplete?)                    |
+| `apps/bot/src/events/interactionCreate.ts` | Routes autocomplete + slash commands (no changes needed)                |
+| `packages/db/src/schema.ts`                | `userTeams`, `userProfiles`, `nikkeAccountLinks`, `nikkeRosters` tables |
 
 ### nikke-sim
 
-| Path | Role |
-|------|------|
-| `src/share/build-code.ts` | `decodeBuild()` — isomorphic build-code codec |
-| `src/share/teamCard.ts` | `drawTeamCard()`, `drawRosterCard()` — isomorphic card renderers |
-| `src/share/dpsChart.ts` | `drawDpsChart()` — isomorphic DPS chart renderer |
-| `src/dpschart/matrix.ts` | `cellId()`, axis definitions, `CELLS` array |
-| `src/overload/policy.ts` | `monteCarloBuild()` — OL roll Monte Carlo |
-| `data/ol-probabilities.json` | OL probability model (datamined) |
-| `data/characters.json` | Unit data (chargeFrames, ammo, element, weapon, imageUrl) |
-| `scripts/build-dpschart.ts` | Precomputes `web/public/dpschart.json` |
-| `web/src/App.tsx` | Breakpoint math (~line 440), doll FAQ (~line 6100), OL sim defaults |
-| `web/src/auth.ts` | Backend API contract (teams, profiles, roster, accounts) |
+| Path                         | Role                                                                |
+| ---------------------------- | ------------------------------------------------------------------- |
+| `src/share/build-code.ts`    | `decodeBuild()` — isomorphic build-code codec                       |
+| `src/share/teamCard.ts`      | `drawTeamCard()`, `drawRosterCard()` — isomorphic card renderers    |
+| `src/share/dpsChart.ts`      | `drawDpsChart()` — isomorphic DPS chart renderer                    |
+| `src/dpschart/matrix.ts`     | `cellId()`, axis definitions, `CELLS` array                         |
+| `src/overload/policy.ts`     | `monteCarloBuild()` — OL roll Monte Carlo                           |
+| `data/ol-probabilities.json` | OL probability model (datamined)                                    |
+| `data/characters.json`       | Unit data (chargeFrames, ammo, element, weapon, imageUrl)           |
+| `scripts/build-dpschart.ts`  | Precomputes `web/public/dpschart.json`                              |
+| `web/src/App.tsx`            | Breakpoint math (~line 440), doll FAQ (~line 6100), OL sim defaults |
+| `web/src/auth.ts`            | Backend API contract (teams, profiles, roster, accounts)            |
 
 ---
 

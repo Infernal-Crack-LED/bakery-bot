@@ -66,13 +66,19 @@ export const BUILD_VERSION = 1;
 // this file compiles under both the DOM (web) and node tsconfigs.
 const nodeBuffer: any = (globalThis as any).Buffer;
 function bytesToB64(bytes: Uint8Array): string {
-  if (nodeBuffer) {return nodeBuffer.from(bytes).toString('base64');}
+  if (nodeBuffer) {
+    return nodeBuffer.from(bytes).toString('base64');
+  }
   let bin = '';
-  for (const b of bytes) {bin += String.fromCharCode(b);}
+  for (const b of bytes) {
+    bin += String.fromCharCode(b);
+  }
   return (globalThis as any).btoa(bin);
 }
 function b64ToBytes(b64: string): Uint8Array {
-  if (nodeBuffer) {return new Uint8Array(nodeBuffer.from(b64, 'base64'));}
+  if (nodeBuffer) {
+    return new Uint8Array(nodeBuffer.from(b64, 'base64'));
+  }
   const bin = (globalThis as any).atob(b64);
   return Uint8Array.from(bin, (c: string) => c.charCodeAt(0));
 }

@@ -1,11 +1,18 @@
+import { readFileSync } from 'node:fs';
 import { db, nikkeAccountLinks } from '@app/db';
 import { and, eq } from 'drizzle-orm';
 import {
+  AttachmentBuilder,
   EmbedBuilder,
   MessageFlags,
   SlashCommandBuilder,
 } from 'discord.js';
 import type { Command } from '../../types.js';
+
+const BLABLA_ICON_NAME = 'blablalink-icon.png';
+const blablaIconPng = readFileSync(
+  new URL('../../assets/blablalink-icon.png', import.meta.url)
+);
 
 export const command: Command = {
   data: new SlashCommandBuilder()
@@ -31,11 +38,15 @@ export const command: Command = {
     const url = `https://www.blablalink.com/user?openid=${encodeURIComponent(link.openId)}`;
     const embed = new EmbedBuilder()
       .setColor(0xf472b6)
-      .setTitle('🔗 Your blablalink profile')
+      .setThumbnail(`attachment://${BLABLA_ICON_NAME}`)
+      .setTitle('Blablalink')
       .setDescription(
         `**[blablalink.com](${url})**${link.label ? ` — ${link.label}` : ''}`
       );
 
-    await interaction.reply({ embeds: [embed] });
+    await interaction.reply({
+      embeds: [embed],
+      files: [new AttachmentBuilder(blablaIconPng, { name: BLABLA_ICON_NAME })],
+    });
   },
 };

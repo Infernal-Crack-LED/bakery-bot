@@ -1,7 +1,12 @@
 // Compact table infographic renderer — draws a titled table to a Canvas2D
 // context. Matches the visual style of dpsChart.ts / teamCard.ts (dark bg,
 // blue accent, same font). Used by /bp and /ol for compact data displays.
-import { type Canvas2DLike, FONT } from './teamCard.js';
+import {
+  type Canvas2DLike,
+  roundRect,
+  FONT,
+  PORTRAIT_CROP_TOP,
+} from './teamCard.js';
 
 export type { Canvas2DLike } from './teamCard.js';
 
@@ -15,6 +20,8 @@ export interface TableCardData {
   columns: TableColumn[];
   rows: string[][];
   footer?: string;
+  icon?: unknown; // optional canvas-drawable image drawn beside the title
+  portrait?: unknown; // optional character portrait drawn top-right
 }
 
 export const TABLE_W = 720;
@@ -38,16 +45,48 @@ export function drawTableCard(ctx: Canvas2DLike, data: TableCardData): void {
   ctx.fillStyle = '#5b9dff';
   ctx.fillRect(0, 0, W, 5);
 
-  // title + subtitle
+  // icon + title + subtitle
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
+  const ICON = 32;
+  let textX = padX;
+  if (data.icon) {
+    const iy = 44 - ICON + 4;
+    ctx.drawImage(data.icon, padX, iy, ICON, ICON);
+    textX = padX + ICON + 12;
+  }
   ctx.fillStyle = '#e7eaf0';
   ctx.font = `700 24px ${FONT}`;
-  ctx.fillText(data.title, padX, 44);
+  ctx.fillText(data.title, textX, 44);
   if (data.subtitle) {
     ctx.fillStyle = '#8b93a3';
     ctx.font = `400 14px ${FONT}`;
-    ctx.fillText(data.subtitle, padX, 68);
+    ctx.fillText(data.subtitle, textX, 68);
+  }
+
+  // character portrait (top-right corner)
+  if (data.portrait) {
+    const PS = 64;
+    const px = W - padX - PS;
+    const py = 12;
+    const im = data.portrait as {
+      naturalWidth?: number;
+      naturalHeight?: number;
+      width?: number;
+      height?: number;
+    };
+    const iw = im.naturalWidth ?? im.width ?? PS;
+    const ih = im.naturalHeight ?? im.height ?? PS;
+    const side = Math.min(iw, ih);
+    const sx = (iw - side) / 2;
+    const sy = (ih - side) * PORTRAIT_CROP_TOP;
+    ctx.save();
+    roundRect(ctx, px, py, PS, PS, 10);
+    ctx.clip();
+    ctx.fillStyle = '#1f232d';
+    ctx.fillRect(px, py, PS, PS);
+    ctx.drawImage(data.portrait, sx, sy, side, side, px, py, PS, PS);
+    ctx.restore();
   }
 
   // column layout: distribute width evenly, first column left-aligned

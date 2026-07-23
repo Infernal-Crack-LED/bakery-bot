@@ -14,9 +14,7 @@ describe('/doll', () => {
     const payload = reply.mock.calls[0]![0] as {
       embeds: { toJSON: () => Record<string, unknown> }[];
     };
-    const serialized = JSON.stringify(
-      payload.embeds.map((e) => e.toJSON())
-    );
+    const serialized = JSON.stringify(payload.embeds.map((e) => e.toJSON()));
     expect(serialized).toContain('Doll Leveling FAQ');
     expect(serialized).toContain('https://www.nikkesim.app/doll');
     expect(serialized).toContain('Combine (trade) them');

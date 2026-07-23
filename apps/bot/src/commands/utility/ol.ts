@@ -5,7 +5,7 @@ import {
   SlashCommandBuilder,
 } from 'discord.js';
 import type { Command } from '../../types.js';
-import { iconAttachment, ICON_URL } from '../../lib/nikke-sim/icon.js';
+import { iconAttachment, ICON_URL, NS_ICON } from '../../lib/nikke-sim/icon.js';
 import {
   TABLE_W,
   tableHeight,
@@ -100,7 +100,7 @@ function buildTable(): TableCardData {
     `${TOTAL.modulesP95}`,
   ]);
   return {
-    title: '\u2699\uFE0F Overload Roll Calculator \u2014 Default 8/12',
+    title: 'Overload Roll Calculator \u2014 Default 8/12',
     subtitle:
       'Elem DMG T11 + ATK T11 \u00B7 4 pieces \u00B7 20k-trial Monte Carlo',
     columns: [
@@ -112,7 +112,8 @@ function buildTable(): TableCardData {
       { header: 'Mod P95', align: 'right' },
     ],
     rows,
-    footer: 'nikke-sim \u00B7 permanent-lock policy \u00B7 nikkesim.app/olsim',
+    footer: 'nikkesim.app/olsim',
+    icon: NS_ICON,
   };
 }
 
@@ -124,19 +125,15 @@ export const command: Command = {
     ),
   execute: async (interaction) => {
     const data = buildTable();
-    const dpr = 2;
-    const canvas = createCanvas(
-      TABLE_W * dpr,
-      tableHeight(data.rows.length) * dpr
-    );
+    const canvas = createCanvas(TABLE_W, tableHeight(data.rows.length));
     const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
     drawTableCard(ctx as unknown as Canvas2DLike, data);
     const png = canvas.toBuffer('image/png');
 
     const embed = new EmbedBuilder()
       .setColor(0xf472b6)
       .setThumbnail(ICON_URL)
+      .setImage(`attachment://${OL_PNG}`)
       .setDescription(
         '**[Full calculator on nikkesim.app](https://www.nikkesim.app/olsim)**'
       );

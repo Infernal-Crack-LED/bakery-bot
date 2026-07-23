@@ -1,6 +1,7 @@
 import { db, userTeams, type UserTeam } from '@app/db';
 import { eq } from 'drizzle-orm';
 import { createCanvas } from '@napi-rs/canvas';
+import { NS_ICON, iconAttachment, ICON_URL } from '../../lib/nikke-sim/icon.js';
 import {
   ActionRowBuilder,
   AttachmentBuilder,
@@ -63,13 +64,15 @@ async function renderTeamCard(build: Build): Promise<Buffer | null> {
     };
   });
 
-  // Load portraits.
+  // Load pre-sized portraits from nikkesim.app (128px square webp, already cropped).
   await Promise.all(
     units.map(async (u, i) => {
       const slug = slots[i]?.slug;
-      const c = slug ? charMap.get(slug) : undefined;
-      if (c?.imageUrl) {
-        u.img = (await loadPortrait(c.imageUrl)) ?? undefined;
+      if (slug) {
+        u.img =
+          (await loadPortrait(
+            `https://www.nikkesim.app/img/portraits/${slug}-128.webp`
+          )) ?? undefined;
       }
     })
   );
@@ -80,12 +83,12 @@ async function renderTeamCard(build: Build): Promise<Buffer | null> {
     coreLabel: build.g.coreCustom
       ? `${build.g.coreCustomVal}% core`
       : `${Math.round(build.g.core * 100)}% core`,
+    icon: NS_ICON,
+    footer: 'nikkesim.app/teambuilder',
   };
 
-  const dpr = 2;
-  const canvas = createCanvas(CARD_W * dpr, cardHeight(units.length) * dpr);
+  const canvas = createCanvas(CARD_W, cardHeight(units.length));
   const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
   drawTeamCard(
     ctx as unknown as Canvas2DLike,
     {
@@ -143,13 +146,19 @@ export const command: Command = {
       const png = await renderTeamCard(match.build);
       const embed = new EmbedBuilder()
         .setColor(0x5b9dff)
-        .setTitle(`📋 ${match.row.name}`)
+        .setThumbnail(ICON_URL)
+        .setTitle(match.row.name)
         .setDescription(
           `**[Open in Team Builder](${TEAMBUILDER_URL}?b=${match.row.code})**`
         );
+      if (png) {
+        embed.setImage(`attachment://${TEAM_PNG}`);
+      }
       await interaction.editReply({
         embeds: [embed],
-        files: png ? [new AttachmentBuilder(png, { name: TEAM_PNG })] : [],
+        files: png
+          ? [iconAttachment(), new AttachmentBuilder(png, { name: TEAM_PNG })]
+          : [iconAttachment()],
       });
       return;
     }
@@ -193,19 +202,28 @@ export const command: Command = {
       return;
     }
 
-    await selected.deferUpdate();
+    // Show "Loading…" in the ephemeral message while rendering.
+    await selected.update({ content: 'Loading\u2026', components: [] });
+
     const png = await renderTeamCard(picked.build);
     const embed = new EmbedBuilder()
       .setColor(0x5b9dff)
-      .setTitle(`📋 ${picked.row.name}`)
+      .setThumbnail(ICON_URL)
+      .setTitle(picked.row.name)
       .setDescription(
         `**[Open in Team Builder](${TEAMBUILDER_URL}?b=${picked.row.code})**`
       );
-    await interaction.editReply({
-      content: null,
+    if (png) {
+      embed.setImage(`attachment://${TEAM_PNG}`);
+    }
+    // Post the result publicly so the whole channel can see it.
+    await interaction.followUp({
       embeds: [embed],
-      components: [],
-      files: png ? [new AttachmentBuilder(png, { name: TEAM_PNG })] : [],
+      files: png
+        ? [iconAttachment(), new AttachmentBuilder(png, { name: TEAM_PNG })]
+        : [iconAttachment()],
     });
+    // Clean up the ephemeral "Loading…" message.
+    await interaction.deleteReply().catch(() => null);
   },
 };

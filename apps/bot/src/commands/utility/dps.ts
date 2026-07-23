@@ -18,6 +18,7 @@ import {
   getDpsChart,
 } from '../../lib/nikke-sim/dpschart-cache.js';
 import { loadPortrait } from '../../lib/nikke-sim/portrait.js';
+import { iconAttachment, ICON_URL, NS_ICON } from '../../lib/nikke-sim/icon.js';
 
 const ELEMENTS = ['fire', 'water', 'wind', 'electric', 'iron'] as const;
 const ELEMENT_CHOICES = ELEMENTS.map((e) => ({
@@ -100,7 +101,7 @@ export const command: Command = {
           name,
           element: u.element,
           dps,
-          imageUrl: u.imageUrl,
+          slug,
         };
       });
 
@@ -109,12 +110,13 @@ export const command: Command = {
       return;
     }
 
-    // Load portraits in parallel (fail-soft per unit).
+    // Load pre-sized portraits from nikkesim.app (fail-soft per unit).
     await Promise.all(
       bars.map(async (b) => {
-        if (b.imageUrl) {
-          b.img = (await loadPortrait(b.imageUrl)) ?? undefined;
-        }
+        b.img =
+          (await loadPortrait(
+            `https://www.nikkesim.app/img/portraits/${b.slug}-128.webp`
+          )) ?? undefined;
       })
     );
 
@@ -129,28 +131,29 @@ export const command: Command = {
       title,
       subtitle: 'Solo · 8/12 · Core 100 · 180s',
       bars,
+      icon: NS_ICON,
+      footer: 'nikkesim.app/dpschart',
     };
 
-    const dpr = 2;
-    const canvas = createCanvas(
-      CHART_W * dpr,
-      chartHeight(bars.length, false) * dpr
-    );
+    const canvas = createCanvas(CHART_W, chartHeight(bars.length, false));
     const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
     drawDpsChart(ctx as never, data);
     const png = canvas.toBuffer('image/png');
 
     const embed = new EmbedBuilder()
       .setColor(0x5b9dff)
-      .setTitle(title)
+      .setThumbnail(ICON_URL)
+      .setImage(`attachment://${CHART_PNG}`)
       .setDescription(
         `**[Full chart on nikkesim.app](https://www.nikkesim.app/dpschart)**`
       );
 
     await interaction.editReply({
       embeds: [embed],
-      files: [new AttachmentBuilder(png, { name: CHART_PNG })],
+      files: [
+        iconAttachment(),
+        new AttachmentBuilder(png, { name: CHART_PNG }),
+      ],
     });
   },
 };

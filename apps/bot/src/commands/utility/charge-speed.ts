@@ -14,22 +14,14 @@ import {
   type Canvas2DLike,
   type TableCardData,
 } from '../../lib/nikke-sim/tableCard.js';
-import { iconAttachment, ICON_URL } from '../../lib/nikke-sim/icon.js';
-
-/**
- * /bp — charge-speed and max-ammo breakpoints as a compact infographic.
- *
- * Shows the best (lowest-frame) breakpoint reachable per OL line count (1–4),
- * with shots-per-Full-Burst for charge weapons. Ammo breakpoints shown when
- * the unit has a magazine. Breakpoint math mirrors nikke-sim src/breakpoints.ts.
- */
+import { iconAttachment, ICON_URL, NS_ICON } from '../../lib/nikke-sim/icon.js';
+import { loadPortrait } from '../../lib/nikke-sim/portrait.js';
 
 const CS_PER_LINE_T11 = 4.92;
-const AMMO_PER_LINE_T11 = 68.93;
 const FRAME_MS = 1000 / 60;
 const RELEASE_LATENCY_FRAMES = 22;
 const FULL_BURST_FRAMES = 600;
-const BP_PNG = 'breakpoints.png';
+const CS_PNG = 'charge-speed.png';
 
 function chargeFrameBreakpoints(baseFrames: number) {
   const rows: { frames: number; csNeeded: number }[] = [];
@@ -41,12 +33,9 @@ function chargeFrameBreakpoints(baseFrames: number) {
   return rows;
 }
 
-/** Best breakpoint reachable with `lines` OL lines at T11. */
 function bestPerLine(baseFrames: number, lines: number) {
   const totalCs = lines * CS_PER_LINE_T11;
   const bps = chargeFrameBreakpoints(baseFrames);
-  // breakpoints are sorted desc by frames (highest first); find the lowest
-  // frame whose csNeeded ≤ totalCs.
   let best: { frames: number; csNeeded: number } | null = null;
   for (const bp of bps) {
     if (bp.csNeeded <= totalCs) {
@@ -74,7 +63,7 @@ function buildChargeTable(baseFrames: number, label: string): TableCardData {
     ]);
   }
   return {
-    title: `\u26A1 Charge Speed \u2014 ${label}`,
+    title: `Charge Speed \u2014 ${label}`,
     subtitle: `Base ${baseFrames}f (${(baseFrames / 60).toFixed(2)}s) \u00B7 T11 = ${CS_PER_LINE_T11}% CS/line \u00B7 shots per Full Burst (10s)`,
     columns: [
       { header: 'OL Lines' },
@@ -84,42 +73,14 @@ function buildChargeTable(baseFrames: number, label: string): TableCardData {
       { header: 'Shots/FB', align: 'right' },
     ],
     rows,
-    footer: 'nikke-sim \u00B7 T11 roll values \u00B7 nikkesim.app/charge',
-  };
-}
-
-function buildAmmoTable(base: number, name: string): TableCardData {
-  const rows: string[][] = [];
-  for (let lines = 1; lines <= 5; lines++) {
-    const pct = lines * AMMO_PER_LINE_T11;
-    const ammo = Math.floor(base * (1 + pct / 100));
-    if (ammo <= base) {
-      continue;
-    }
-    rows.push([`${lines}`, `${pct.toFixed(1)}%`, `${ammo}`, `+${ammo - base}`]);
-  }
-  return {
-    title: `\uD83D\uDD2B Max Ammo \u2014 ${name}`,
-    subtitle: `Base ${base} rounds \u00B7 T11 = ${AMMO_PER_LINE_T11}% ammo/line`,
-    columns: [
-      { header: 'OL Lines' },
-      { header: 'Ammo %', align: 'right' },
-      { header: 'Rounds', align: 'right' },
-      { header: 'Gain', align: 'right' },
-    ],
-    rows,
-    footer: 'nikke-sim \u00B7 T11 roll values \u00B7 nikkesim.app/charge',
+    footer: 'nikkesim.app/charge',
+    icon: NS_ICON,
   };
 }
 
 function renderTable(data: TableCardData): Buffer {
-  const dpr = 2;
-  const canvas = createCanvas(
-    TABLE_W * dpr,
-    tableHeight(data.rows.length) * dpr
-  );
+  const canvas = createCanvas(TABLE_W, tableHeight(data.rows.length));
   const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
   drawTableCard(ctx as unknown as Canvas2DLike, data);
   return canvas.toBuffer('image/png');
 }
@@ -145,26 +106,14 @@ async function findCharacter(query: string) {
 
 export const command: Command = {
   data: new SlashCommandBuilder()
-    .setName('bp')
-    .setDescription('Charge-speed & max-ammo breakpoints.')
+    .setName('charge-speed')
+    .setDescription('Charge-speed breakpoints per OL line count.')
     .addStringOption((o) =>
       o
         .setName('character')
-        .setDescription(
-          'Character name for specific breakpoints (autocomplete)'
-        )
+        .setDescription('Character name (autocomplete)')
         .setRequired(false)
         .setAutocomplete(true)
-    )
-    .addStringOption((o) =>
-      o
-        .setName('type')
-        .setDescription('Breakpoint type (requires a character)')
-        .setRequired(false)
-        .addChoices(
-          { name: 'Charge Speed', value: 'cs' },
-          { name: 'Max Ammo', value: 'ammo' }
-        )
     ),
   autocomplete: async (interaction) => {
     const focused = interaction.options
@@ -204,23 +153,21 @@ export const command: Command = {
   },
   execute: async (interaction) => {
     const query = interaction.options.getString('character');
-    const bpType = interaction.options.getString('type') ?? 'cs';
 
     if (!query) {
-      // Generic: 60-frame (1s) charge weapon.
       const data = buildChargeTable(60, 'Generic (1.0s)');
       const png = renderTable(data);
       const embed = new EmbedBuilder()
         .setColor(0xf472b6)
         .setThumbnail(ICON_URL)
-        .setImage(`attachment://${BP_PNG}`)
+        .setImage(`attachment://${CS_PNG}`)
         .setDescription(
-          'Use `/bp character:<name>` for unit-specific breakpoints.\n' +
+          'Use `/charge-speed character:<name>` for unit-specific breakpoints.\n' +
             '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
         );
       await interaction.reply({
         embeds: [embed],
-        files: [iconAttachment(), new AttachmentBuilder(png, { name: BP_PNG })],
+        files: [iconAttachment(), new AttachmentBuilder(png, { name: CS_PNG })],
       });
       return;
     }
@@ -236,61 +183,41 @@ export const command: Command = {
 
     const weapon = character.attributes?.weapon;
     const chargeTime = character.roleWeapon?.shot_detail?.charge_time;
-    const baseAmmo =
-      character.roleWeapon?.shot_detail?.max_ammo ?? character.attributes?.ammo;
 
-    const files: AttachmentBuilder[] = [];
-    const parts: string[] = [];
-    let imageName: string | null = null;
-
-    if (bpType === 'cs') {
-      // Charge breakpoints (SR / RL only).
-      if (
-        chargeTime &&
-        chargeTime > 0 &&
-        (weapon === 'SR' || weapon === 'RL')
-      ) {
-        const baseFrames = Math.round((chargeTime / 100) * 60);
-        const data = buildChargeTable(baseFrames, character.name);
-        imageName = BP_PNG;
-        files.push(
-          new AttachmentBuilder(renderTable(data), { name: imageName })
-        );
-      } else {
-        parts.push(
+    if (
+      !chargeTime ||
+      chargeTime <= 0 ||
+      (weapon !== 'SR' && weapon !== 'RL')
+    ) {
+      await interaction.editReply({
+        content:
           weapon === 'SR' || weapon === 'RL'
-            ? 'No charge data synced for this unit.'
-            : `${character.name} (${weapon ?? '??'}) is not a charge weapon.`
-        );
-      }
-    } else {
-      // Ammo breakpoints.
-      if (baseAmmo && baseAmmo > 0) {
-        const data = buildAmmoTable(baseAmmo, character.name);
-        imageName = 'ammo-breakpoints.png';
-        files.push(
-          new AttachmentBuilder(renderTable(data), { name: imageName })
-        );
-      } else {
-        parts.push(`${character.name} has no ammo data synced.`);
-      }
+            ? `${character.name}: no charge data synced.`
+            : `${character.name} (${weapon ?? '??'}) is not a charge weapon.`,
+      });
+      return;
     }
 
+    const baseFrames = Math.round((chargeTime / 100) * 60);
+    const portrait = await loadPortrait(
+      `https://www.nikkesim.app/img/portraits/${character.id}-128.webp`
+    );
+    const data = buildChargeTable(baseFrames, character.name);
+    if (portrait) {
+      data.portrait = portrait;
+    }
+    const png = renderTable(data);
     const embed = new EmbedBuilder()
       .setColor(0xf472b6)
       .setThumbnail(ICON_URL)
-      .setTitle(`\u26A1 Breakpoints \u2014 ${character.name}`)
+      .setTitle(`Charge Speed \u2014 ${character.name}`)
+      .setImage(`attachment://${CS_PNG}`)
       .setDescription(
-        (parts.length ? parts.join('\n') + '\n' : '') +
-          '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
+        '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
       );
-    if (imageName) {
-      embed.setImage(`attachment://${imageName}`);
-    }
-
     await interaction.editReply({
       embeds: [embed],
-      files: [iconAttachment(), ...files],
+      files: [iconAttachment(), new AttachmentBuilder(png, { name: CS_PNG })],
     });
   },
 };
