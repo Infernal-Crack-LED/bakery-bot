@@ -35,11 +35,17 @@ let fetchedAt = 0;
 let inflight: Promise<DpsChartJson> | null = null;
 
 export async function getDpsChart(): Promise<DpsChartJson> {
-  if (cached && Date.now() - fetchedAt < TTL_MS) {return cached;}
-  if (inflight) {return inflight;}
+  if (cached && Date.now() - fetchedAt < TTL_MS) {
+    return cached;
+  }
+  if (inflight) {
+    return inflight;
+  }
   inflight = (async () => {
     const res = await fetch(DPSCHART_URL);
-    if (!res.ok) {throw new Error(`dpschart fetch ${res.status}`);}
+    if (!res.ok) {
+      throw new Error(`dpschart fetch ${res.status}`);
+    }
     const json = (await res.json()) as DpsChartJson;
     cached = json;
     fetchedAt = Date.now();
@@ -71,8 +77,12 @@ export function lookupRank(
   slug: string
 ): RankEntry | null {
   const cell = chart.cells[cellId];
-  if (!cell) {return null;}
+  if (!cell) {
+    return null;
+  }
   const idx = cell.findIndex(([s]) => s === slug);
-  if (idx < 0) {return null;}
-  return { rank: idx + 1, total: cell.length, dps: cell[idx][1], slug };
+  if (idx < 0) {
+    return null;
+  }
+  return { rank: idx + 1, total: cell.length, dps: cell[idx]![1], slug };
 }

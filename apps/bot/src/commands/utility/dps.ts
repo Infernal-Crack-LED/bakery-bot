@@ -21,7 +21,7 @@ import { loadPortrait } from '../../lib/nikke-sim/portrait.js';
 
 const ELEMENTS = ['fire', 'water', 'wind', 'electric', 'iron'] as const;
 const ELEMENT_CHOICES = ELEMENTS.map((e) => ({
-  name: e[0].toUpperCase() + e.slice(1),
+  name: e.charAt(0).toUpperCase() + e.slice(1),
   value: e,
 }));
 
@@ -40,10 +40,10 @@ export const command: Command = {
           'Filter to one element, or "neutral" for no elemental advantage.'
         )
         .setRequired(false)
-        .addChoices(
-          ...ELEMENT_CHOICES,
-          { name: 'Neutral (no ele advantage)', value: 'neutral' }
-        )
+        .addChoices(...ELEMENT_CHOICES, {
+          name: 'Neutral (no ele advantage)',
+          value: 'neutral',
+        })
     ),
   execute: async (interaction) => {
     await interaction.deferReply();
@@ -64,7 +64,9 @@ export const command: Command = {
 
     const cell = chart.cells[cellId];
     if (!cell) {
-      await interaction.editReply('DPS data unavailable for this configuration.');
+      await interaction.editReply(
+        'DPS data unavailable for this configuration.'
+      );
       return;
     }
 
@@ -72,19 +74,22 @@ export const command: Command = {
     const bars: DpsBar[] = cell
       .filter(([slug]) => {
         const u = chart.units[slug];
-        if (!u?.chartPop) {return false;}
+        if (!u?.chartPop) {
+          return false;
+        }
         if (
           elementFilter &&
           elementFilter !== 'neutral' &&
           !u.elements.some(
             (e) => e.toLowerCase() === elementFilter.toLowerCase()
           )
-        )
-          {return false;}
+        ) {
+          return false;
+        }
         return true;
       })
       .map(([slug, dps]) => {
-        const u = chart.units[slug];
+        const u = chart.units[slug]!;
         return {
           name: u.name,
           element: u.element,
@@ -102,13 +107,15 @@ export const command: Command = {
     // Load portraits in parallel (fail-soft per unit).
     await Promise.all(
       bars.map(async (b) => {
-        if (b.imageUrl) {b.img = (await loadPortrait(b.imageUrl)) ?? undefined;}
+        if (b.imageUrl) {
+          b.img = (await loadPortrait(b.imageUrl)) ?? undefined;
+        }
       })
     );
 
     const title =
       elementFilter && elementFilter !== 'neutral'
-        ? `Solo Raid DPS — ${elementFilter[0].toUpperCase() + elementFilter.slice(1)}`
+        ? `Solo Raid DPS — ${elementFilter.charAt(0).toUpperCase() + elementFilter.slice(1)}`
         : elementFilter === 'neutral'
           ? 'Solo Raid DPS — Neutral'
           : 'Solo Raid DPS — Ele Advantage';
@@ -120,7 +127,10 @@ export const command: Command = {
     };
 
     const dpr = 2;
-    const canvas = createCanvas(CHART_W * dpr, chartHeight(bars.length, false) * dpr);
+    const canvas = createCanvas(
+      CHART_W * dpr,
+      chartHeight(bars.length, false) * dpr
+    );
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     drawDpsChart(ctx as never, data);

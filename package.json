@@ -14,6 +14,7 @@
     "build:libs": "npm run build:db && npm run build:nikke",
     "predev:bot": "npm run build:libs",
     "dev:bot": "npm run dev --workspace=@app/bot",
+    "dev:local": "bash scripts/local.sh",
     "predev:web": "npm run build:libs",
     "dev:web": "npm run dev --workspace=@app/web",
     "build": "npm run build:libs && npm run build --workspace=@app/bot && npm run build --workspace=@app/web",
