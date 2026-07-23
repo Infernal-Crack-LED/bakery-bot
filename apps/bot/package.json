@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "prebuild": "tsc -p ../../packages/db && tsc -p ../../packages/nikke",
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-assets.mjs",
     "pretypecheck": "tsc -p ../../packages/db && tsc -p ../../packages/nikke",
     "pretest": "tsc -p ../../packages/db && tsc -p ../../packages/nikke",
     "start": "node dist/index.js",
