@@ -90,11 +90,16 @@ export const command: Command = {
       })
       .map(([slug, dps]) => {
         const u = chart.units[slug]!;
+        // Truncate long names to fit the chart's label column (~24 chars at 17px).
+        const MAX_NAME = 24;
+        const name =
+          u.name.length > MAX_NAME
+            ? u.name.slice(0, MAX_NAME - 1).trimEnd() + '…'
+            : u.name;
         return {
-          name: u.name,
+          name,
           element: u.element,
           dps,
-          advantaged: elementFilter !== 'neutral',
           imageUrl: u.imageUrl,
         };
       });

@@ -9,6 +9,18 @@ type Database = PostgresJsDatabase<typeof schema>;
 
 let instance: Database | undefined;
 
+/**
+ * Create a Drizzle client for an explicit connection string — for tooling that
+ * talks to a specific database (e.g. scripts/copy-my-data.ts copying prod rows
+ * into a local DB) rather than the ambient `resolveDatabaseUrl()` connection.
+ */
+export function createDb(connectionString: string): Database {
+  // `prepare: false` keeps things compatible with connection poolers
+  // (PgBouncer-style) that Railway may sit behind.
+  const queryClient = postgres(connectionString, { prepare: false });
+  return drizzle(queryClient, { schema });
+}
+
 /** Lazily create the connection so importing this module never connects. */
 function getDb(): Database {
   if (instance) {
@@ -23,10 +35,7 @@ function getDb(): Database {
     );
   }
 
-  // `prepare: false` keeps things compatible with connection poolers
-  // (PgBouncer-style) that Railway may sit behind.
-  const queryClient = postgres(connectionString, { prepare: false });
-  instance = drizzle(queryClient, { schema });
+  instance = createDb(connectionString);
   return instance;
 }
 

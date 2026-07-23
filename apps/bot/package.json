@@ -15,6 +15,7 @@
     "deploy-commands": "tsx src/deploy-commands.ts",
     "clear-guild-commands": "tsx src/clear-guild-commands.ts",
     "sync:nikke": "tsx src/scripts/sync-nikke.ts",
+    "copy:my-data": "tsx src/scripts/copy-my-data.ts",
     "smoke:gacha": "tsx src/scripts/smoke-gacha-ingest.ts",
     "backfill:patches": "tsx src/scripts/backfill-patches.ts",
     "sync:emojis": "tsx src/scripts/sync-emojis.ts",
