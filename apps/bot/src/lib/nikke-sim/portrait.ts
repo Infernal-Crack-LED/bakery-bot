@@ -1,62 +1,35 @@
 /**
- * Load a portrait image from a URL for use with @napi-rs/canvas. Returns an
- * Image instance ready for drawImage, or null on any failure (missing URL,
- * network error, decode error). Successful results are cached in memory;
- * failures are NOT cached so the next call retries.
+ * Load a character portrait by slug from the bundled 128px webp thumbnails
+ * (apps/bot/src/assets/portraits/<slug>-128.webp). No network needed —
+ * portraits ship with the bot. Returns null if the file is missing or fails
+ * to decode.
  *
- * A warm-up HEAD request fires at module load to establish the DNS + TLS
- * connection to nikkesim.app, so the first real portrait fetch doesn't pay
- * the cold-start penalty.
+ * To refresh after a nikke-sim data sync:
+ *   cp nikke-sim/web/public/img/portraits/*-128.webp apps/bot/src/assets/portraits/
  */
+import { readFileSync } from 'node:fs';
 import { Image } from '@napi-rs/canvas';
 
-const PORTRAIT_BASE = 'https://www.nikkesim.app/img/portraits/';
+const PORTRAIT_DIR = new URL('../../assets/portraits/', import.meta.url);
+const cache = new Map<string, Image | null>();
 
-// Warm the connection pool to nikkesim.app at import time (fire-and-forget).
-fetch(PORTRAIT_BASE, { method: 'HEAD' }).catch(() => null);
-
-const cache = new Map<string, Image>();
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function fetchOnce(url: string): Promise<Image | null> {
+export function loadPortraitSlug(slug: string): Image | null {
+  const hit = cache.get(slug);
+  if (hit !== undefined) {
+    return hit;
+  }
   try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      return null;
-    }
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = readFileSync(new URL(`${slug}-128.webp`, PORTRAIT_DIR));
     const img = new Image();
     img.src = buf;
     if (img.width === 0 || img.height === 0) {
+      cache.set(slug, null);
       return null;
     }
+    cache.set(slug, img);
     return img;
   } catch {
+    cache.set(slug, null);
     return null;
   }
-}
-
-export async function loadPortrait(
-  url: string | null | undefined
-): Promise<Image | null> {
-  if (!url) {
-    return null;
-  }
-  const hit = cache.get(url);
-  if (hit) {
-    return hit;
-  }
-  // Up to 3 attempts with a short backoff (cold-start DNS/TLS on attempt 1).
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) {
-      await sleep(200 * attempt);
-    }
-    const img = await fetchOnce(url);
-    if (img) {
-      cache.set(url, img);
-      return img;
-    }
-  }
-  return null;
 }

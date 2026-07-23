@@ -17,7 +17,7 @@ import {
   NEUTRAL_CELL_ID,
   getDpsChart,
 } from '../../lib/nikke-sim/dpschart-cache.js';
-import { loadPortrait } from '../../lib/nikke-sim/portrait.js';
+import { loadPortraitSlug } from '../../lib/nikke-sim/portrait.js';
 import { iconAttachment, ICON_URL, NS_ICON } from '../../lib/nikke-sim/icon.js';
 
 const ELEMENTS = ['fire', 'water', 'wind', 'electric', 'iron'] as const;
@@ -110,15 +110,10 @@ export const command: Command = {
       return;
     }
 
-    // Load pre-sized portraits from nikkesim.app (fail-soft per unit).
-    await Promise.all(
-      bars.map(async (b) => {
-        b.img =
-          (await loadPortrait(
-            `https://www.nikkesim.app/img/portraits/${b.slug}-128.webp`
-          )) ?? undefined;
-      })
-    );
+    // Load bundled portraits (sync, from disk).
+    for (const b of bars) {
+      b.img = loadPortraitSlug(b.slug) ?? undefined;
+    }
 
     const title =
       elementFilter && elementFilter !== 'neutral'

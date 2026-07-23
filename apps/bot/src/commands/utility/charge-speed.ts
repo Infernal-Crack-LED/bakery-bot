@@ -15,7 +15,7 @@ import {
   type TableCardData,
 } from '../../lib/nikke-sim/tableCard.js';
 import { iconAttachment, ICON_URL, NS_ICON } from '../../lib/nikke-sim/icon.js';
-import { loadPortrait } from '../../lib/nikke-sim/portrait.js';
+import { loadPortraitSlug } from '../../lib/nikke-sim/portrait.js';
 
 const CS_PER_LINE_T11 = 4.92;
 const FRAME_MS = 1000 / 60;
@@ -199,10 +199,8 @@ export const command: Command = {
     }
 
     const baseFrames = Math.round((chargeTime / 100) * 60);
-    const portrait = await loadPortrait(
-      `https://www.nikkesim.app/img/portraits/${character.id}-128.webp`
-    );
     const data = buildChargeTable(baseFrames, character.name);
+    const portrait = loadPortraitSlug(character.id);
     if (portrait) {
       data.portrait = portrait;
     }

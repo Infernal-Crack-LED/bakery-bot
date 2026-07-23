@@ -21,7 +21,7 @@ import {
   type TeamCardMeta,
   type RosterCardTeam,
 } from '../../lib/nikke-sim/teamCard.js';
-import { loadPortrait } from '../../lib/nikke-sim/portrait.js';
+import { loadPortraitSlug } from '../../lib/nikke-sim/portrait.js';
 
 const ROSTER_PNG = 'roster-card.png';
 const TEAMBUILDER_URL = 'https://www.nikkesim.app/teambuilder';
@@ -55,30 +55,17 @@ async function renderRosterCard(
   });
   const charMap = new Map(chars.map((c) => [c.id, c]));
 
-  // Load pre-sized portraits from nikkesim.app (deduped across teams).
-  const portraitCache = new Map<string, Promise<unknown>>();
-  const load = (slug: string) => {
-    if (!portraitCache.has(slug)) {
-      portraitCache.set(
-        slug,
-        loadPortrait(`https://www.nikkesim.app/img/portraits/${slug}-128.webp`)
-      );
-    }
-    return portraitCache.get(slug)!;
-  };
-
+  // Load bundled portraits (sync, from disk — cached inside loadPortraitSlug).
   const teams: RosterCardTeam[] = [];
   for (const teamSlugs of roster) {
-    const units = await Promise.all(
-      teamSlugs.map(async (slug) => {
-        const c = slug ? charMap.get(slug) : undefined;
-        return {
-          name: c?.name ?? slug ?? '???',
-          element: c?.attributes?.element ?? 'Iron',
-          img: slug ? ((await load(slug)) ?? undefined) : undefined,
-        };
-      })
-    );
+    const units = teamSlugs.map((slug) => {
+      const c = slug ? charMap.get(slug) : undefined;
+      return {
+        name: c?.name ?? slug ?? '???',
+        element: c?.attributes?.element ?? 'Iron',
+        img: slug ? (loadPortraitSlug(slug) ?? undefined) : undefined,
+      };
+    });
     teams.push({ teamDamage: 0, units });
   }
 
