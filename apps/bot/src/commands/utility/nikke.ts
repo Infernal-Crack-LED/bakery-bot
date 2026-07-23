@@ -12,6 +12,12 @@ import {
   PORTRAIT_ATTACHMENT_NAME,
   fetchPortraitThumbnail,
 } from '../../lib/nikke/portrait.js';
+import {
+  DEFAULT_CELL_ID,
+  getDpsChart,
+  lookupRank,
+} from '../../lib/nikke-sim/dpschart-cache.js';
+import { relScore } from '../../lib/nikke-sim/dpsChart.js';
 
 /**
  * /nikke <name> — look up a character's Prydwen tiers, Nikke Synergy arena
@@ -269,17 +275,36 @@ export const command: Command = {
     const cropped = character.imageUrl
       ? await fetchPortraitThumbnail(character.imageUrl)
       : null;
+    const embed = buildEmbed(
+      character,
+      cropped ? `attachment://${PORTRAIT_ATTACHMENT_NAME}` : undefined
+    );
+
+    // Sim rank from the precomputed DPS chart (fail-soft: omit on any error).
+    try {
+      const chart = await getDpsChart();
+      const entry = lookupRank(chart, DEFAULT_CELL_ID, character.id);
+      if (entry) {
+        const top = chart.cells[DEFAULT_CELL_ID]?.[0]?.[1] ?? entry.dps;
+        embed.addFields({
+          name: '📊 Sim Rank',
+          value: `**#${entry.rank}** / ${entry.total}  ·  ${entry.dps.toLocaleString()} DPS  ·  ${relScore(entry.dps, top)} rel`,
+          inline: true,
+        });
+      }
+    } catch {
+      // dpschart unavailable — skip the field silently
+    }
+
     if (cropped) {
       await interaction.editReply({
-        embeds: [
-          buildEmbed(character, `attachment://${PORTRAIT_ATTACHMENT_NAME}`),
-        ],
+        embeds: [embed],
         files: [
           new AttachmentBuilder(cropped, { name: PORTRAIT_ATTACHMENT_NAME }),
         ],
       });
     } else {
-      await interaction.editReply({ embeds: [buildEmbed(character)] });
+      await interaction.editReply({ embeds: [embed] });
     }
   },
 };

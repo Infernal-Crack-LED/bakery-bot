@@ -9,6 +9,7 @@ import { command } from './guides.js';
  */
 
 const EXPECTED_URLS = [
+  'https://www.nikkesim.app/',
   'https://docs.google.com/spreadsheets/d/16EECdnWsdbfeJ_r1KKG0vIhpdeagAbMOjy6xKsSTvh4/edit?gid=0#gid=0',
   'https://nikke-synergy.com/lp_en',
   'https://enikk.app/',

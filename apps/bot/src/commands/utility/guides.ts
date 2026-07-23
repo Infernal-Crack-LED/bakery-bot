@@ -9,6 +9,11 @@ import type { Command } from '../../types.js';
  */
 const GUIDES: { label: string; url: string; description: string }[] = [
   {
+    label: 'NIKKE Sim',
+    url: 'https://www.nikkesim.app/',
+    description: 'Solo-raid damage simulator',
+  },
+  {
     label: "Tsareena's NIKKE Build Guide",
     url: 'https://docs.google.com/spreadsheets/d/16EECdnWsdbfeJ_r1KKG0vIhpdeagAbMOjy6xKsSTvh4/edit?gid=0#gid=0',
     description: 'Community build sheet',
