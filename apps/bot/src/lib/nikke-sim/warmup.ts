@@ -1,8 +1,9 @@
 /**
  * Warm up all canvas infrastructure at bot startup so the first infographic
- * command renders instantly. Exercises fonts, portrait loading, and each
- * renderer with a tiny throwaway canvas.
+ * command renders instantly. Loads every bundled portrait, exercises fonts,
+ * and renders throwaway canvases with each renderer.
  */
+import { readdirSync } from 'node:fs';
 import { createCanvas } from '@napi-rs/canvas';
 import {
   drawTeamCard,
@@ -16,8 +17,12 @@ import { NS_ICON } from './icon.js';
 
 export function warmUp(): void {
   try {
-    // Load a few portraits to warm the disk cache + decode pipeline.
-    for (const slug of ['crown', 'helm', 'anis-star']) {
+    // Load ALL bundled portraits into the cache (192 × ~7KB, ~1.3MB total).
+    const dir = new URL('../../assets/portraits/', import.meta.url);
+    const slugs = readdirSync(dir)
+      .filter((f) => f.endsWith('-128.webp'))
+      .map((f) => f.replace('-128.webp', ''));
+    for (const slug of slugs) {
       loadPortraitSlug(slug);
     }
 
@@ -61,7 +66,9 @@ export function warmUp(): void {
       icon: NS_ICON,
     });
 
-    console.log('[ready] canvas warm-up complete');
+    console.log(
+      `[ready] canvas warm-up complete (${slugs.length} portraits cached)`
+    );
   } catch (e) {
     console.warn(
       '[ready] canvas warm-up failed (first command may be slow):',
