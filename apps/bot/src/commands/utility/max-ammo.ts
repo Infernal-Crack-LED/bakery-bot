@@ -15,7 +15,7 @@ import {
   type TableCardData,
 } from '../../lib/nikke-sim/tableCard.js';
 import { iconAttachment, ICON_URL, NS_ICON } from '../../lib/nikke-sim/icon.js';
-import { loadPortrait } from '../../lib/nikke-sim/portrait.js';
+import { loadPortraitSlug } from '../../lib/nikke-sim/portrait.js';
 
 const AMMO_PER_LINE_T11 = 68.93;
 const AMMO_PNG = 'max-ammo.png';
@@ -140,10 +140,8 @@ export const command: Command = {
       return;
     }
 
-    const portrait = await loadPortrait(
-      `https://www.nikkesim.app/img/portraits/${character.id}-128.webp`
-    );
     const data = buildAmmoTable(baseAmmo, character.name);
+    const portrait = loadPortraitSlug(character.id);
     if (portrait) {
       data.portrait = portrait;
     }

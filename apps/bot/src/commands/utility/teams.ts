@@ -21,7 +21,7 @@ import {
   type TeamCardMeta,
   type TeamCardUnit,
 } from '../../lib/nikke-sim/teamCard.js';
-import { loadPortrait } from '../../lib/nikke-sim/portrait.js';
+import { loadPortraitSlug } from '../../lib/nikke-sim/portrait.js';
 
 const TEAM_PNG = 'team-card.png';
 const TEAMBUILDER_URL = 'https://www.nikkesim.app/teambuilder';
@@ -64,18 +64,13 @@ async function renderTeamCard(build: Build): Promise<Buffer | null> {
     };
   });
 
-  // Load pre-sized portraits from nikkesim.app (128px square webp, already cropped).
-  await Promise.all(
-    units.map(async (u, i) => {
-      const slug = slots[i]?.slug;
-      if (slug) {
-        u.img =
-          (await loadPortrait(
-            `https://www.nikkesim.app/img/portraits/${slug}-128.webp`
-          )) ?? undefined;
-      }
-    })
-  );
+  // Load bundled portraits (sync, from disk).
+  units.forEach((u, i) => {
+    const slug = slots[i]?.slug;
+    if (slug) {
+      u.img = loadPortraitSlug(slug) ?? undefined;
+    }
+  });
 
   const meta: TeamCardMeta = {
     weakness: build.g.weakness,

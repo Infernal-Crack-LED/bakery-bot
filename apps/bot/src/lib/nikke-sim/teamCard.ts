@@ -8,6 +8,9 @@
 // units without an image degrade to an element-tinted box + name initial. The bot
 // has no CORS constraint, the browser loads CDN art with crossOrigin='anonymous'.
 
+// Register bundled Roboto so text renders on fontless Linux (Railway).
+import './fonts.js';
+
 // Structural subset of CanvasRenderingContext2D we use — keeps this compilable
 // without the DOM lib (root tsconfig) and works with node canvas contexts.
 export interface Canvas2DLike {
@@ -51,7 +54,7 @@ export interface Canvas2DLike {
   ): void;
 }
 
-export const FONT = `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+export const FONT = `Roboto, sans-serif`;
 
 // Portrait square-crop framing — the single source of truth for how far down a
 // square is anchored when cropped out of a tall portrait (fraction of the vertical

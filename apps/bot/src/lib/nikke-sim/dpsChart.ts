@@ -23,7 +23,7 @@ export interface DpsBar {
   name: string;
   element: string;
   dps: number;
-  slug?: string;
+  slug: string;
   advantaged?: boolean;
   imageUrl?: string | null; // portrait source (loaded by the caller into `img`)
   img?: unknown; // pre-loaded CanvasImageSource; drawn if present
