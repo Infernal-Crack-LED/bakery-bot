@@ -177,19 +177,6 @@ interface FavoriteItemResult {
   errors: string[];
 }
 
-/** A character row is a Treasure (Favorite-Item) unit if "treasure" shows up in
- * its name, any alias, or its Prydwen slug (e.g. `helm-treasure`). Used only to
- * bound the fetch-only-new check; the CDN derivation is the source of truth for
- * which characters actually have a Treasure item. */
-function isTreasureUnit(row: {
-  name: string;
-  aliases: string[] | null;
-  prydwenSlug: string | null;
-}): boolean {
-  const hay = [row.name, ...(row.aliases ?? []), row.prydwenSlug ?? ''];
-  return hay.some((s) => /treasure/i.test(s));
-}
-
 /**
  * Treasure-kit skills from each unit's blablalink Favorite Item — the
  * LEVEL-SENSITIVE source the old Synergy override lacked. For Treasure units
@@ -203,11 +190,12 @@ function isTreasureUnit(row: {
  * every unit — unlike the per-account user API, whose `favorite_item_tid` is a
  * skill-less placeholder doll for Treasures the account hasn't unlocked.
  *
- * Fetch-only-new: `isTreasureUnit` is only a cheap GATE — if no Treasure-looking
- * unit is missing its `favorite_item_id`, the step makes ZERO network calls.
- * When it does run, the fill is driven by the authoritative DERIVED set (matched
- * to our characters by name), so a Treasure unit the name/slug heuristic doesn't
- * flag still gets filled as long as it's in the derived set and already has a row.
+ * Always runs the CDN derivation (no gate): the old `isTreasureUnit` heuristic
+ * gated on "treasure" appearing in a row's name/alias/prydwenSlug, which meant
+ * NEW treasure units — whose fields carry no "treasure" marker yet — were never
+ * discovered. The per-item `favoriteItemId != null` skip below is the real
+ * fetch-only-new guard; the CDN enumeration cost is negligible in a sync that
+ * already fetches roledata for every character.
  */
 async function syncFavoriteItemSkills(): Promise<FavoriteItemResult> {
   const rows = await db
@@ -219,11 +207,6 @@ async function syncFavoriteItemSkills(): Promise<FavoriteItemResult> {
       favoriteItemId: nikkeCharacters.favoriteItemId,
     })
     .from(nikkeCharacters);
-
-  const gate = rows.some((c) => c.favoriteItemId == null && isTreasureUnit(c));
-  if (!gate) {
-    return { fetched: 0, unmatched: [], errors: [] };
-  }
 
   const items = await deriveTreasureItems();
   const charByName = new Map(rows.map((c) => [normalizeName(c.name), c]));
