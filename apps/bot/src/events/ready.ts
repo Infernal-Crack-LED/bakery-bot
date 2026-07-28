@@ -1,7 +1,7 @@
 import { Events } from 'discord.js';
 import type { Event } from '../types.js';
-import { getDpsChart } from '../lib/nikke-sim/dpschart-cache.js';
-import { warmUp } from '../lib/nikke-sim/warmup.js';
+import { getDpsChart } from '../lib/nikkesim/dpschart.js';
+import { getManifest } from '../lib/nikkesim/client.js';
 
 export const event: Event<Events.ClientReady> = {
   name: Events.ClientReady,
@@ -11,8 +11,8 @@ export const event: Event<Events.ClientReady> = {
     // The custom status/presence is set in index.ts after emoji provisioning
     // (it needs the MaidenCopium emoji id).
 
-    // Preload the DPS chart data so the first /dps or /nikke command doesn't
-    // pay the cold-start DNS+TLS cost to nikkesim.app.
+    // Preload the DPS chart data so the first /nikke command doesn't pay the
+    // cold-start DNS+TLS cost to nikkesim.app.
     getDpsChart()
       .then(() => console.log('[ready] dpschart.json preloaded'))
       .catch((e) =>
@@ -22,9 +22,15 @@ export const event: Event<Events.ClientReady> = {
         )
       );
 
-    // Warm up canvas renderers, fonts, and portrait cache so the first
-    // /teams, /roster, /charge-speed, /max-ammo, /ol, or /bp command
-    // renders instantly.
-    warmUp();
+    // Preload the infographic manifest so the first /dps, /ol, or
+    // /charge-speed command resolves its image URL instantly.
+    getManifest()
+      .then(() => console.log('[ready] nikkesim image manifest preloaded'))
+      .catch((e) =>
+        console.warn(
+          '[ready] manifest preload failed (will retry on first use):',
+          e
+        )
+      );
   },
 };

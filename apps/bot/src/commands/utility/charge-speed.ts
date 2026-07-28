@@ -1,89 +1,9 @@
 import { db, nikkeCharacters } from '@app/db';
 import { asc, eq, ilike } from 'drizzle-orm';
-import { createCanvas } from '@napi-rs/canvas';
-import {
-  AttachmentBuilder,
-  EmbedBuilder,
-  SlashCommandBuilder,
-} from 'discord.js';
+import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
-import {
-  TABLE_W,
-  tableHeight,
-  drawTableCard,
-  type Canvas2DLike,
-  type TableCardData,
-} from '../../lib/nikke-sim/tableCard.js';
-import { iconAttachment, ICON_URL, NS_ICON } from '../../lib/nikke-sim/icon.js';
-import { loadPortraitSlug } from '../../lib/nikke-sim/portrait.js';
-
-const CS_PER_LINE_T11 = 4.92;
-const FRAME_MS = 1000 / 60;
-const RELEASE_LATENCY_FRAMES = 22;
-const FULL_BURST_FRAMES = 600;
-const CS_PNG = 'charge-speed.png';
-
-function chargeFrameBreakpoints(baseFrames: number) {
-  const rows: { frames: number; csNeeded: number }[] = [];
-  for (let n = baseFrames - 1; n >= 1; n--) {
-    const infimum = 100 * (1 - (n + 0.5) / baseFrames);
-    const csNeeded = Math.ceil((infimum + 1e-9) * 100) / 100;
-    rows.push({ frames: n, csNeeded });
-  }
-  return rows;
-}
-
-function bestPerLine(baseFrames: number, lines: number) {
-  const totalCs = lines * CS_PER_LINE_T11;
-  const bps = chargeFrameBreakpoints(baseFrames);
-  let best: { frames: number; csNeeded: number } | null = null;
-  for (const bp of bps) {
-    if (bp.csNeeded <= totalCs) {
-      best = bp;
-    }
-  }
-  return best;
-}
-
-function buildChargeTable(baseFrames: number, label: string): TableCardData {
-  const rows: string[][] = [];
-  for (let lines = 1; lines <= 5; lines++) {
-    const bp = bestPerLine(baseFrames, lines);
-    if (!bp) {
-      continue;
-    }
-    const ms = bp.frames * FRAME_MS;
-    const shotsFb = FULL_BURST_FRAMES / (bp.frames + RELEASE_LATENCY_FRAMES);
-    rows.push([
-      `${lines}`,
-      `\u2265 ${bp.csNeeded.toFixed(2)}%`,
-      `${bp.frames}f`,
-      `${ms.toFixed(0)} ms`,
-      shotsFb.toFixed(2),
-    ]);
-  }
-  return {
-    title: `Charge Speed \u2014 ${label}`,
-    subtitle: `Base ${baseFrames}f (${(baseFrames / 60).toFixed(2)}s) \u00B7 T11 = ${CS_PER_LINE_T11}% CS/line \u00B7 shots per Full Burst (10s)`,
-    columns: [
-      { header: 'OL Lines' },
-      { header: 'CS Needed', align: 'right' },
-      { header: 'Charge', align: 'right' },
-      { header: 'Time', align: 'right' },
-      { header: 'Shots/FB', align: 'right' },
-    ],
-    rows,
-    footer: 'nikkesim.app/charge',
-    icon: NS_ICON,
-  };
-}
-
-function renderTable(data: TableCardData): Buffer {
-  const canvas = createCanvas(TABLE_W, tableHeight(data.rows.length));
-  const ctx = canvas.getContext('2d');
-  drawTableCard(ctx as unknown as Canvas2DLike, data);
-  return canvas.toBuffer('image/png');
-}
+import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
+import { tableImageUrl } from '../../lib/nikkesim/client.js';
 
 async function findCharacter(query: string) {
   const direct =
@@ -155,20 +75,25 @@ export const command: Command = {
     const query = interaction.options.getString('character');
 
     if (!query) {
-      const data = buildChargeTable(60, 'Generic (1.0s)');
-      const png = renderTable(data);
+      // Generic (1.0s) table — the pre-rendered manifest image.
+      let imageUrl: string;
+      try {
+        imageUrl = await tableImageUrl('charge-speed');
+      } catch {
+        await interaction.reply(
+          'Could not fetch the charge-speed table from nikkesim.app \u2014 try again later.'
+        );
+        return;
+      }
       const embed = new EmbedBuilder()
         .setColor(0xf472b6)
         .setThumbnail(ICON_URL)
-        .setImage(`attachment://${CS_PNG}`)
+        .setImage(imageUrl)
         .setDescription(
           'Use `/charge-speed character:<name>` for unit-specific breakpoints.\n' +
             '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
         );
-      await interaction.reply({
-        embeds: [embed],
-        files: [iconAttachment(), new AttachmentBuilder(png, { name: CS_PNG })],
-      });
+      await interaction.reply({ embeds: [embed], files: [iconAttachment()] });
       return;
     }
 
@@ -198,24 +123,32 @@ export const command: Command = {
       return;
     }
 
-    const baseFrames = Math.round((chargeTime / 100) * 60);
-    const data = buildChargeTable(baseFrames, character.name);
-    const portrait = loadPortraitSlug(character.id);
-    if (portrait) {
-      data.portrait = portrait;
+    // The DB character id IS the nikkesim slug — the API renders the table
+    // server-side from the same data. The two sides still drift (a NIKKE
+    // released since nikke-sim's last deploy is unknown there), so surface the
+    // API's reason instead of posting an embed with a silently blank image.
+    let imageUrl: string;
+    try {
+      imageUrl = await tableImageUrl('charge-speed', { unit: character.id });
+    } catch (err) {
+      await interaction.editReply(
+        `Couldn't render the Charge Speed table for **${character.name}** — ${
+          err instanceof Error ? err.message : 'nikkesim.app is unavailable'
+        }.\n**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**`
+      );
+      return;
     }
-    const png = renderTable(data);
     const embed = new EmbedBuilder()
       .setColor(0xf472b6)
       .setThumbnail(ICON_URL)
       .setTitle(`Charge Speed \u2014 ${character.name}`)
-      .setImage(`attachment://${CS_PNG}`)
+      .setImage(imageUrl)
       .setDescription(
         '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
       );
     await interaction.editReply({
       embeds: [embed],
-      files: [iconAttachment(), new AttachmentBuilder(png, { name: CS_PNG })],
+      files: [iconAttachment()],
     });
   },
 };

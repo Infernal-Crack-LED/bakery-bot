@@ -1,10 +1,8 @@
 import { db, userTeams, type UserTeam } from '@app/db';
 import { eq } from 'drizzle-orm';
-import { createCanvas } from '@napi-rs/canvas';
-import { NS_ICON, iconAttachment, ICON_URL } from '../../lib/nikke-sim/icon.js';
+import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
 import {
   ActionRowBuilder,
-  AttachmentBuilder,
   ComponentType,
   EmbedBuilder,
   MessageFlags,
@@ -12,18 +10,9 @@ import {
   StringSelectMenuBuilder,
 } from 'discord.js';
 import type { Command } from '../../types.js';
-import { decodeBuild, type Build } from '../../lib/nikke-sim/build-code.js';
-import {
-  CARD_W,
-  cardHeight,
-  drawTeamCard,
-  type Canvas2DLike,
-  type TeamCardMeta,
-  type TeamCardUnit,
-} from '../../lib/nikke-sim/teamCard.js';
-import { loadPortraitSlug } from '../../lib/nikke-sim/portrait.js';
+import { decodeBuild, type Build } from '../../lib/nikkesim/build-code.js';
+import { teamCardImage, type CardImage } from '../../lib/nikkesim/client.js';
 
-const TEAM_PNG = 'team-card.png';
 const TEAMBUILDER_URL = 'https://www.nikkesim.app/teambuilder';
 
 /** Filter to non-roster team builds. */
@@ -38,65 +27,27 @@ function teamBuilds(rows: UserTeam[]): { row: UserTeam; build: Build }[] {
   return out;
 }
 
-async function renderTeamCard(build: Build): Promise<Buffer | null> {
+/** Team card for a build, or null when there's nothing to render (no slotted
+ * units) or nikke-sim can't render it (an older build code its decoder
+ * rejects, or the site being down) — the reply then goes out without an
+ * image, keeping the name and the Team Builder link. */
+async function teamCard(build: Build, code: string): Promise<CardImage | null> {
   const slots = build.s;
-  if (!slots || slots.length === 0) {
+  if (!slots || slots.length === 0 || !slots.some((s) => s.slug)) {
     return null;
   }
-
-  // Resolve unit metadata from the DB.
-  const slugs = slots.map((s) => s.slug).filter((s): s is string => !!s);
-  const chars = await db.query.nikkeCharacters.findMany({
-    where: (c, { inArray }) => inArray(c.id, slugs),
-  });
-  const charMap = new Map(chars.map((c) => [c.id, c]));
-
-  const units: TeamCardUnit[] = slots.map((s) => {
-    const c = s.slug ? charMap.get(s.slug) : undefined;
-    return {
-      name: c?.name ?? s.slug ?? '???',
-      burst: c?.attributes?.burst ?? '?',
-      weapon: c?.attributes?.weapon ?? '?',
-      element: c?.attributes?.element ?? 'Iron',
-      advantaged: !!build.g.weakness,
-      share: 0,
-      totalDamage: 0,
-    };
-  });
-
-  // Load bundled portraits (sync, from disk).
-  units.forEach((u, i) => {
-    const slug = slots[i]?.slug;
-    if (slug) {
-      u.img = loadPortraitSlug(slug) ?? undefined;
-    }
-  });
-
-  const meta: TeamCardMeta = {
-    weakness: build.g.weakness,
-    level: Number(build.g.level) || 400,
-    coreLabel: build.g.coreCustom
-      ? `${build.g.coreCustomVal}% core`
-      : `${Math.round(build.g.core * 100)}% core`,
-    icon: NS_ICON,
-    footer: 'nikkesim.app/teambuilder',
-  };
-
-  const canvas = createCanvas(CARD_W, cardHeight(units.length));
-  const ctx = canvas.getContext('2d');
-  drawTeamCard(
-    ctx as unknown as Canvas2DLike,
-    {
-      teamDamage: 0,
-      teamDps: 0,
-      fullBursts: 0,
-      fullBurstUptime: 0,
-      units,
-    },
-    meta
-  );
-  return canvas.toBuffer('image/png');
+  try {
+    return await teamCardImage(code);
+  } catch (err) {
+    console.warn('[teams] team card unavailable:', err);
+    return null;
+  }
 }
+
+/** Icon thumbnail, plus the card itself when it came back as bytes rather
+ * than a URL (a build code too long for an embed image URL). */
+const cardFiles = (card: CardImage | null) =>
+  card?.file ? [iconAttachment(), card.file] : [iconAttachment()];
 
 export const command: Command = {
   data: new SlashCommandBuilder()
@@ -138,7 +89,7 @@ export const command: Command = {
         return;
       }
       await interaction.deferReply();
-      const png = await renderTeamCard(match.build);
+      const card = await teamCard(match.build, match.row.code);
       const embed = new EmbedBuilder()
         .setColor(0x5b9dff)
         .setThumbnail(ICON_URL)
@@ -146,14 +97,12 @@ export const command: Command = {
         .setDescription(
           `**[Open in Team Builder](${TEAMBUILDER_URL}?b=${match.row.code})**`
         );
-      if (png) {
-        embed.setImage(`attachment://${TEAM_PNG}`);
+      if (card) {
+        embed.setImage(card.url);
       }
       await interaction.editReply({
         embeds: [embed],
-        files: png
-          ? [iconAttachment(), new AttachmentBuilder(png, { name: TEAM_PNG })]
-          : [iconAttachment()],
+        files: cardFiles(card),
       });
       return;
     }
@@ -200,7 +149,7 @@ export const command: Command = {
     // Show "Loading…" in the ephemeral message while rendering.
     await selected.update({ content: 'Loading\u2026', components: [] });
 
-    const png = await renderTeamCard(picked.build);
+    const card = await teamCard(picked.build, picked.row.code);
     const embed = new EmbedBuilder()
       .setColor(0x5b9dff)
       .setThumbnail(ICON_URL)
@@ -208,15 +157,13 @@ export const command: Command = {
       .setDescription(
         `**[Open in Team Builder](${TEAMBUILDER_URL}?b=${picked.row.code})**`
       );
-    if (png) {
-      embed.setImage(`attachment://${TEAM_PNG}`);
+    if (card) {
+      embed.setImage(card.url);
     }
     // Post the result publicly so the whole channel can see it.
     await interaction.followUp({
       embeds: [embed],
-      files: png
-        ? [iconAttachment(), new AttachmentBuilder(png, { name: TEAM_PNG })]
-        : [iconAttachment()],
+      files: cardFiles(card),
     });
     // Clean up the ephemeral "Loading…" message.
     await interaction.deleteReply().catch(() => null);
