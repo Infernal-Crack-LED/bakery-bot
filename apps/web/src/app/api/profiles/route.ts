@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, userProfiles, type UserProfile } from '@app/db';
 import { getUser, json, preflight } from '@/lib/api';
+import { EVICTABLE_KINDS } from '@/lib/profile-kinds';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -88,7 +89,29 @@ export async function POST(req: NextRequest) {
         and(eq(userProfiles.discordId, u.id), eq(userProfiles.kind, kind))
       );
     if (count >= MAX_PROFILES_PER_KIND) {
-      return json(req, { error: 'limit_reached' }, 400);
+      if (!EVICTABLE_KINDS.includes(kind)) {
+        return json(req, { error: 'limit_reached' }, 400);
+      }
+      // Rolling window (see EVICTABLE_KINDS): drop the least-recently-updated
+      // rows of this kind to make room for exactly one more. `count` can exceed
+      // the cap if it was lowered after rows existed, so free the whole
+      // overflow rather than assuming a single row is enough.
+      const victims = await db
+        .select({ id: userProfiles.id })
+        .from(userProfiles)
+        .where(
+          and(eq(userProfiles.discordId, u.id), eq(userProfiles.kind, kind))
+        )
+        .orderBy(asc(userProfiles.updatedAt))
+        .limit(count - MAX_PROFILES_PER_KIND + 1);
+      if (victims.length > 0) {
+        await db.delete(userProfiles).where(
+          inArray(
+            userProfiles.id,
+            victims.map((v) => v.id)
+          )
+        );
+      }
     }
   }
 
