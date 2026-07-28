@@ -11,7 +11,7 @@ import {
 } from 'discord.js';
 import type { Command } from '../../types.js';
 import { decodeBuild, type Build } from '../../lib/nikkesim/build-code.js';
-import { teamImageUrl } from '../../lib/nikkesim/client.js';
+import { teamCardImage, type CardImage } from '../../lib/nikkesim/client.js';
 
 const TEAMBUILDER_URL = 'https://www.nikkesim.app/teambuilder';
 
@@ -27,25 +27,27 @@ function teamBuilds(rows: UserTeam[]): { row: UserTeam; build: Build }[] {
   return out;
 }
 
-/** Team-card image URL for a build, or null when there's nothing to render
- * (no slotted units) or nikke-sim can't render it (an older build code its
- * decoder rejects, or the site being down) — the reply then goes out without
- * an image, keeping the name and the Team Builder link. */
-async function cardImageUrl(
-  build: Build,
-  code: string
-): Promise<string | null> {
+/** Team card for a build, or null when there's nothing to render (no slotted
+ * units) or nikke-sim can't render it (an older build code its decoder
+ * rejects, or the site being down) — the reply then goes out without an
+ * image, keeping the name and the Team Builder link. */
+async function teamCard(build: Build, code: string): Promise<CardImage | null> {
   const slots = build.s;
   if (!slots || slots.length === 0 || !slots.some((s) => s.slug)) {
     return null;
   }
   try {
-    return await teamImageUrl(code);
+    return await teamCardImage(code);
   } catch (err) {
     console.warn('[teams] team card unavailable:', err);
     return null;
   }
 }
+
+/** Icon thumbnail, plus the card itself when it came back as bytes rather
+ * than a URL (a build code too long for an embed image URL). */
+const cardFiles = (card: CardImage | null) =>
+  card?.file ? [iconAttachment(), card.file] : [iconAttachment()];
 
 export const command: Command = {
   data: new SlashCommandBuilder()
@@ -87,7 +89,7 @@ export const command: Command = {
         return;
       }
       await interaction.deferReply();
-      const imageUrl = await cardImageUrl(match.build, match.row.code);
+      const card = await teamCard(match.build, match.row.code);
       const embed = new EmbedBuilder()
         .setColor(0x5b9dff)
         .setThumbnail(ICON_URL)
@@ -95,12 +97,12 @@ export const command: Command = {
         .setDescription(
           `**[Open in Team Builder](${TEAMBUILDER_URL}?b=${match.row.code})**`
         );
-      if (imageUrl) {
-        embed.setImage(imageUrl);
+      if (card) {
+        embed.setImage(card.url);
       }
       await interaction.editReply({
         embeds: [embed],
-        files: [iconAttachment()],
+        files: cardFiles(card),
       });
       return;
     }
@@ -147,7 +149,7 @@ export const command: Command = {
     // Show "Loading…" in the ephemeral message while rendering.
     await selected.update({ content: 'Loading\u2026', components: [] });
 
-    const imageUrl = await cardImageUrl(picked.build, picked.row.code);
+    const card = await teamCard(picked.build, picked.row.code);
     const embed = new EmbedBuilder()
       .setColor(0x5b9dff)
       .setThumbnail(ICON_URL)
@@ -155,13 +157,13 @@ export const command: Command = {
       .setDescription(
         `**[Open in Team Builder](${TEAMBUILDER_URL}?b=${picked.row.code})**`
       );
-    if (imageUrl) {
-      embed.setImage(imageUrl);
+    if (card) {
+      embed.setImage(card.url);
     }
     // Post the result publicly so the whole channel can see it.
     await interaction.followUp({
       embeds: [embed],
-      files: [iconAttachment()],
+      files: cardFiles(card),
     });
     // Clean up the ephemeral "Loading…" message.
     await interaction.deleteReply().catch(() => null);

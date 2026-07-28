@@ -42,10 +42,10 @@ vi.mock('@app/db', () => ({
 vi.mock('drizzle-orm', () => ({ eq: vi.fn() }));
 
 vi.mock('../../lib/nikkesim/client.js', () => ({
-  teamImageUrl: vi.fn(() => Promise.resolve(CARD_URL)),
+  teamCardImage: vi.fn(() => Promise.resolve({ url: CARD_URL })),
 }));
 
-import { teamImageUrl } from '../../lib/nikkesim/client.js';
+import { teamCardImage } from '../../lib/nikkesim/client.js';
 import { command } from './teams.js';
 
 const row = (name: string, code: string) => ({
@@ -72,8 +72,8 @@ function fakeInteraction() {
 
 describe('/teams', () => {
   beforeEach(() => {
-    vi.mocked(teamImageUrl).mockClear();
-    vi.mocked(teamImageUrl).mockResolvedValue(CARD_URL);
+    vi.mocked(teamCardImage).mockClear();
+    vi.mocked(teamCardImage).mockResolvedValue({ url: CARD_URL });
     findMany.mockResolvedValue([row('Main', TEAM_CODE)]);
   });
 
@@ -88,7 +88,7 @@ describe('/teams', () => {
   it('embeds the team card, keyed by the saved build code', async () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
-    expect(teamImageUrl).toHaveBeenCalledWith(TEAM_CODE);
+    expect(teamCardImage).toHaveBeenCalledWith(TEAM_CODE);
     const embed = editReply.mock.calls[0]![0].embeds[0].toJSON();
     expect(embed.image.url).toBe(CARD_URL);
     expect(embed.title).toBe('Main');
@@ -97,7 +97,7 @@ describe('/teams', () => {
   // A build code nikke-sim's decoder rejects, or the site being down, must not
   // cost the user the whole reply — the name and Team Builder link still go out.
   it('drops the image but keeps the embed when the card cannot be rendered', async () => {
-    vi.mocked(teamImageUrl).mockRejectedValueOnce(
+    vi.mocked(teamCardImage).mockRejectedValueOnce(
       new Error('invalid build code')
     );
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -115,7 +115,7 @@ describe('/teams', () => {
     findMany.mockResolvedValue([row('Main', EMPTY_CODE)]);
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
-    expect(teamImageUrl).not.toHaveBeenCalled();
+    expect(teamCardImage).not.toHaveBeenCalled();
     expect(
       editReply.mock.calls[0]![0].embeds[0].toJSON().image
     ).toBeUndefined();

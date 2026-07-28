@@ -11,7 +11,7 @@ import {
 } from 'discord.js';
 import type { Command } from '../../types.js';
 import { decodeBuild, type Build } from '../../lib/nikkesim/build-code.js';
-import { rosterImageUrl } from '../../lib/nikkesim/client.js';
+import { rosterCardImage, type CardImage } from '../../lib/nikkesim/client.js';
 
 const TEAMBUILDER_URL = 'https://www.nikkesim.app/teambuilder';
 
@@ -27,25 +27,31 @@ function rosterBuilds(rows: UserTeam[]): { row: UserTeam; build: Build }[] {
   return out;
 }
 
-/** Roster-card image URL for a build, or null when there's nothing to render
- * (empty roster) or nikke-sim can't render it (an older build code its decoder
+/** Roster card for a build, or null when there's nothing to render (empty
+ * roster) or nikke-sim can't render it (an older build code its decoder
  * rejects, or the site being down) — the reply then goes out without an image,
  * keeping the name and the Roster Generator link. */
-async function cardImageUrl(
+async function rosterCard(
   build: Build,
   code: string
-): Promise<string | null> {
+): Promise<CardImage | null> {
   const roster = build.roster;
   if (!roster || roster.length === 0) {
     return null;
   }
   try {
-    return await rosterImageUrl(code);
+    return await rosterCardImage(code);
   } catch (err) {
     console.warn('[roster] roster card unavailable:', err);
     return null;
   }
 }
+
+/** Icon thumbnail, plus the card itself when it came back as bytes rather
+ * than a URL (a roster code too long for an embed image URL — the common
+ * case: a populated 5-team roster lands around 3.3 KB). */
+const cardFiles = (card: CardImage | null) =>
+  card?.file ? [iconAttachment(), card.file] : [iconAttachment()];
 
 export const command: Command = {
   data: new SlashCommandBuilder()
@@ -87,7 +93,7 @@ export const command: Command = {
         return;
       }
       await interaction.deferReply();
-      const imageUrl = await cardImageUrl(match.build, match.row.code);
+      const card = await rosterCard(match.build, match.row.code);
       const embed = new EmbedBuilder()
         .setColor(0x5b9dff)
         .setThumbnail(ICON_URL)
@@ -95,12 +101,12 @@ export const command: Command = {
         .setDescription(
           `**[Open in Roster Generator](https://www.nikkesim.app/roster)**`
         );
-      if (imageUrl) {
-        embed.setImage(imageUrl);
+      if (card) {
+        embed.setImage(card.url);
       }
       await interaction.editReply({
         embeds: [embed],
-        files: [iconAttachment()],
+        files: cardFiles(card),
       });
       return;
     }
@@ -147,7 +153,7 @@ export const command: Command = {
     // Show "Loading…" in the ephemeral message while rendering.
     await selected.update({ content: 'Loading\u2026', components: [] });
 
-    const imageUrl = await cardImageUrl(picked.build, picked.row.code);
+    const card = await rosterCard(picked.build, picked.row.code);
     const embed = new EmbedBuilder()
       .setColor(0x5b9dff)
       .setThumbnail(ICON_URL)
@@ -155,13 +161,13 @@ export const command: Command = {
       .setDescription(
         `**[Open in Roster Generator](https://www.nikkesim.app/roster)**`
       );
-    if (imageUrl) {
-      embed.setImage(imageUrl);
+    if (card) {
+      embed.setImage(card.url);
     }
     // Post the result publicly so the whole channel can see it.
     await interaction.followUp({
       embeds: [embed],
-      files: [iconAttachment()],
+      files: cardFiles(card),
     });
     // Clean up the ephemeral "Loading…" message.
     await interaction.deleteReply().catch(() => null);

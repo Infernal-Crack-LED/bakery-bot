@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AttachmentBuilder } from 'discord.js';
 import { encodeBuild, type Build } from '../../lib/nikkesim/build-code.js';
 
 const CARD_URL = 'https://www.nikkesim.app/api/v1/img/roster.png?b=abc';
@@ -48,10 +49,10 @@ vi.mock('@app/db', () => ({
 vi.mock('drizzle-orm', () => ({ eq: vi.fn() }));
 
 vi.mock('../../lib/nikkesim/client.js', () => ({
-  rosterImageUrl: vi.fn(() => Promise.resolve(CARD_URL)),
+  rosterCardImage: vi.fn(() => Promise.resolve({ url: CARD_URL })),
 }));
 
-import { rosterImageUrl } from '../../lib/nikkesim/client.js';
+import { rosterCardImage } from '../../lib/nikkesim/client.js';
 import { command } from './roster.js';
 
 const row = (name: string, code: string) => ({
@@ -78,8 +79,8 @@ function fakeInteraction() {
 
 describe('/roster', () => {
   beforeEach(() => {
-    vi.mocked(rosterImageUrl).mockClear();
-    vi.mocked(rosterImageUrl).mockResolvedValue(CARD_URL);
+    vi.mocked(rosterCardImage).mockClear();
+    vi.mocked(rosterCardImage).mockResolvedValue({ url: CARD_URL });
     findMany.mockResolvedValue([row('Solo', ROSTER_CODE)]);
   });
 
@@ -94,7 +95,7 @@ describe('/roster', () => {
   it('embeds the roster card, keyed by the saved build code', async () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
-    expect(rosterImageUrl).toHaveBeenCalledWith(ROSTER_CODE);
+    expect(rosterCardImage).toHaveBeenCalledWith(ROSTER_CODE);
     const embed = editReply.mock.calls[0]![0].embeds[0].toJSON();
     expect(embed.image.url).toBe(CARD_URL);
     expect(embed.title).toBe('Solo');
@@ -103,7 +104,7 @@ describe('/roster', () => {
   // See teams.test.ts — a card the API can't render costs the image, not the
   // whole reply.
   it('drops the image but keeps the embed when the card cannot be rendered', async () => {
-    vi.mocked(rosterImageUrl).mockRejectedValueOnce(
+    vi.mocked(rosterCardImage).mockRejectedValueOnce(
       new Error('invalid build code')
     );
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -120,9 +121,29 @@ describe('/roster', () => {
     findMany.mockResolvedValue([row('Solo', EMPTY_ROSTER_CODE)]);
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
-    expect(rosterImageUrl).not.toHaveBeenCalled();
+    expect(rosterCardImage).not.toHaveBeenCalled();
     expect(
       editReply.mock.calls[0]![0].embeds[0].toJSON().image
     ).toBeUndefined();
+  });
+
+  // A populated roster code is ~3.3 KB, past Discord's 2048-char embed image
+  // URL limit, so the client hands back bytes instead. Getting this wrong is
+  // a 50035 that loses the whole reply, not a missing picture.
+  it('uploads the card alongside the icon when it comes back as bytes', async () => {
+    vi.mocked(rosterCardImage).mockResolvedValue({
+      url: 'attachment://roster-card.png',
+      file: new AttachmentBuilder(Buffer.from([1, 2, 3]), {
+        name: 'roster-card.png',
+      }),
+    });
+    const { interaction, editReply } = fakeInteraction();
+    await command.execute(interaction as never);
+    const payload = editReply.mock.calls[0]![0];
+    expect(payload.embeds[0].toJSON().image.url).toBe(
+      'attachment://roster-card.png'
+    );
+    expect(payload.files).toHaveLength(2); // icon + the card itself
+    expect(payload.files[1].name).toBe('roster-card.png');
   });
 });

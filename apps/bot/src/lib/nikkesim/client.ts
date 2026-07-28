@@ -251,30 +251,67 @@ export async function tableImageUrl(
   );
 }
 
-/** Dynamic team-card URL for a saved share build code (302 → hashed cache).
- * Rejects with the API's message when the code doesn't decode. */
-export function teamImageUrl(buildCode: string): Promise<string> {
-  return verifyImageUrl(
-    `${NIKKESIM_BASE_URL}${API_PREFIX}team.png?b=${encodeURIComponent(buildCode)}`
-  );
+// ---- build-code cards (team / roster) ---------------------------------------
+
+/**
+ * Discord rejects an embed image URL longer than this outright:
+ *   DiscordAPIError[50035] embeds[0].image.url[BASE_TYPE_MAX_LENGTH]
+ * Build codes are unbounded — they carry the whole team + per-slot loadout,
+ * and a roster code carries a 5×5 grid on top — so a populated /roster lands
+ * around 3.3 KB, well past the limit.
+ */
+const EMBED_IMAGE_URL_MAX = 2048;
+
+/** How a card gets into an embed: either a URL Discord fetches itself, or
+ * bytes we upload alongside the message. `url` is what setImage() takes. */
+export interface CardImage {
+  url: string;
+  /** Present only on the attachment path — include it in `files`. */
+  file?: AttachmentBuilder;
 }
 
-/** Dynamic roster-card URL for a saved share build code (302 → hashed cache).
- * Rejects with the API's message when the code doesn't decode. */
-export function rosterImageUrl(buildCode: string): Promise<string> {
-  return verifyImageUrl(
-    `${NIKKESIM_BASE_URL}${API_PREFIX}roster.png?b=${encodeURIComponent(buildCode)}`
-  );
+/**
+ * Resolve a build-code card to something an embed can actually carry.
+ *
+ * Short URLs go to Discord as URLs (cheap: one verification probe, no bytes
+ * through us). Over the embed limit we fetch the PNG and upload it instead —
+ * the same picture, at the cost of the bytes, which beats the alternative of
+ * a 50035 that loses the whole reply. The fetch doubles as the verification,
+ * so an undecodable code still rejects with the API's message.
+ */
+async function buildCodeCard(
+  kind: 'team' | 'roster',
+  buildCode: string
+): Promise<CardImage> {
+  const url = `${NIKKESIM_BASE_URL}${API_PREFIX}${kind}.png?b=${encodeURIComponent(buildCode)}`;
+  if (url.length <= EMBED_IMAGE_URL_MAX) {
+    return { url: await verifyImageUrl(url) };
+  }
+  const name = `${kind}-card.png`;
+  const file = await fetchImageAttachment(url, name);
+  return { url: `attachment://${name}`, file };
+}
+
+/** Team card for a saved share build code. Rejects with the API's message
+ * when the code doesn't decode. */
+export function teamCardImage(buildCode: string): Promise<CardImage> {
+  return buildCodeCard('team', buildCode);
+}
+
+/** Roster card for a saved share build code. Rejects with the API's message
+ * when the code doesn't decode. */
+export function rosterCardImage(buildCode: string): Promise<CardImage> {
+  return buildCodeCard('roster', buildCode);
 }
 
 // ---- attachment path --------------------------------------------------------
 
 /**
  * Fetch image bytes and wrap them in an AttachmentBuilder (the
- * `attachment://` path instead of a URL reference). Reserved for any future
- * card whose content must be pinned to exactly this fetch — e.g.
- * account-identifying data Discord must never serve from a stale URL cache.
- * The default for all current cards is the URL-reference path above.
+ * `attachment://` path instead of a URL reference). Used when a URL can't
+ * carry the card — see buildCodeCard — and available for any future card
+ * whose content must be pinned to exactly this fetch, e.g. account-identifying
+ * data Discord must never serve from a stale URL cache.
  */
 export async function fetchImageAttachment(
   url: string,

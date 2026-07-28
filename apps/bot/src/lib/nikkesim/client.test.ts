@@ -236,13 +236,13 @@ describe('tableImageUrl', () => {
 
 describe('team/roster URLs', () => {
   it('builds encoded dynamic team and roster URLs', async () => {
-    const { teamImageUrl, rosterImageUrl } = await importClient();
-    expect(await teamImageUrl('abc+def=')).toBe(
-      `${BASE}/api/v1/img/team.png?b=abc%2Bdef%3D`
-    );
-    expect(await rosterImageUrl('xyz')).toBe(
-      `${BASE}/api/v1/img/roster.png?b=xyz`
-    );
+    const { teamCardImage, rosterCardImage } = await importClient();
+    expect(await teamCardImage('abc+def=')).toEqual({
+      url: `${BASE}/api/v1/img/team.png?b=abc%2Bdef%3D`,
+    });
+    expect(await rosterCardImage('xyz')).toEqual({
+      url: `${BASE}/api/v1/img/roster.png?b=xyz`,
+    });
     // Both are dynamic, so both are verified — and neither touches the manifest.
     expect(probedUrls()).toHaveLength(2);
     expect(fetchMock.mock.calls.map((c) => String(c[0]))).toEqual(probedUrls());
@@ -250,8 +250,74 @@ describe('team/roster URLs', () => {
 
   it('rejects a build code nikke-sim cannot decode', async () => {
     fetchMock.mockResolvedValue(rejected('invalid build code'));
-    const { teamImageUrl } = await importClient();
-    await expect(teamImageUrl('garbage')).rejects.toThrow('invalid build code');
+    const { teamCardImage } = await importClient();
+    await expect(teamCardImage('garbage')).rejects.toThrow(
+      'invalid build code'
+    );
+  });
+
+  // Discord rejects an embed image URL over 2048 chars outright (50035), and a
+  // populated roster code is ~3.3 KB — so past the limit the card has to travel
+  // as bytes instead of as a link.
+  describe('when the build code overflows the embed URL limit', () => {
+    const LONG_CODE = 'x'.repeat(2100);
+
+    it('uploads the bytes instead of linking the URL', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        })
+      );
+      const { rosterCardImage } = await importClient();
+      const card = await rosterCardImage(LONG_CODE);
+      expect(card.url).toBe('attachment://roster-card.png');
+      expect(card.file?.name).toBe('roster-card.png');
+      // The GET replaces the probe rather than adding to it.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]![1]).toBeUndefined();
+    });
+
+    it('names the attachment after the card kind', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        })
+      );
+      const { teamCardImage } = await importClient();
+      expect((await teamCardImage(LONG_CODE)).url).toBe(
+        'attachment://team-card.png'
+      );
+    });
+
+    it('still surfaces an API rejection rather than posting HTML', async () => {
+      fetchMock.mockResolvedValue(rejected('invalid build code'));
+      const { rosterCardImage } = await importClient();
+      await expect(rosterCardImage(LONG_CODE)).rejects.toThrow('400');
+    });
+
+    // Boundary, derived rather than hardcoded so it survives a base-URL change.
+    const PREFIX_LEN = `${BASE}/api/v1/img/roster.png?b=`.length;
+
+    it('keeps a URL of exactly 2048 on the link path', async () => {
+      const { rosterCardImage } = await importClient();
+      const card = await rosterCardImage('y'.repeat(2048 - PREFIX_LEN));
+      expect(card.file).toBeUndefined();
+      expect(card.url).toHaveLength(2048);
+    });
+
+    it('switches to bytes one character past the limit', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        })
+      );
+      const { rosterCardImage } = await importClient();
+      const card = await rosterCardImage('y'.repeat(2049 - PREFIX_LEN));
+      expect(card.file).toBeDefined();
+    });
   });
 });
 
