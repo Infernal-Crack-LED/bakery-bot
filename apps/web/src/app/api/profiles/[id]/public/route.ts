@@ -20,15 +20,10 @@ import { NextRequest } from 'next/server';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db, userProfiles } from '@app/db';
 import { json, preflight } from '@/lib/api';
+import { PUBLIC_KINDS } from '@/lib/profile-kinds';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-// Kept in sync with SHARED_CONFIG_PROFILE_KIND (nikke-sim
-// src/share/shared-config.ts). Adding a kind here makes every existing row of
-// that kind world-readable by id — only add kinds the sim writes solely from an
-// explicit share action.
-const PUBLIC_KINDS = ['sim-share'];
 
 // uuid — the column's type. A malformed id would otherwise reach the driver as
 // a cast error (a 500 for what is really a 404).
@@ -57,7 +52,10 @@ export async function GET(
     })
     .from(userProfiles)
     .where(
-      and(eq(userProfiles.id, id), inArray(userProfiles.kind, PUBLIC_KINDS))
+      and(
+        eq(userProfiles.id, id),
+        inArray(userProfiles.kind, [...PUBLIC_KINDS])
+      )
     );
   if (!row) {
     return json(req, { error: 'not_found' }, 404);
