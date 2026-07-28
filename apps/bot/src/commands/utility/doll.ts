@@ -1,6 +1,6 @@
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
-import { iconAttachment, ICON_URL } from '../../lib/nikke-sim/icon.js';
+import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
 
 /**
  * /doll — doll-leveling FAQ from nikkesim.app/doll.

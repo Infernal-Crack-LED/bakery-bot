@@ -12,12 +12,12 @@ import {
   PORTRAIT_ATTACHMENT_NAME,
   fetchPortraitThumbnail,
 } from '../../lib/nikke/portrait.js';
+import { DEFAULT_DPS_CELL } from '../../lib/nikkesim/client.js';
 import {
-  DEFAULT_CELL_ID,
   getDpsChart,
   lookupRank,
-} from '../../lib/nikke-sim/dpschart-cache.js';
-import { relScore } from '../../lib/nikke-sim/dpsChart.js';
+  relScore,
+} from '../../lib/nikkesim/dpschart.js';
 
 /**
  * /nikke <name> — look up a character's Prydwen tiers, Nikke Synergy arena
@@ -283,9 +283,9 @@ export const command: Command = {
     // Sim rank from the precomputed DPS chart (fail-soft: omit on any error).
     try {
       const chart = await getDpsChart();
-      const entry = lookupRank(chart, DEFAULT_CELL_ID, character.id);
+      const entry = lookupRank(chart, DEFAULT_DPS_CELL, character.id);
       if (entry) {
-        const top = chart.cells[DEFAULT_CELL_ID]?.[0]?.[1] ?? entry.dps;
+        const top = chart.cells[DEFAULT_DPS_CELL]?.[0]?.[1] ?? entry.dps;
         embed.addFields({
           name: '📊 Sim Rank',
           value: `**#${entry.rank}** / ${entry.total}  ·  ${entry.dps.toLocaleString()} DPS  ·  ${relScore(entry.dps, top)} rel`,

@@ -1,32 +1,18 @@
-import { createCanvas } from '@napi-rs/canvas';
-import {
-  AttachmentBuilder,
-  EmbedBuilder,
-  SlashCommandBuilder,
-} from 'discord.js';
+import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
 import {
-  CHART_W,
-  chartHeight,
-  drawDpsChart,
-  type DpsBar,
-  type DpsChartData,
-} from '../../lib/nikke-sim/dpsChart.js';
-import {
-  DEFAULT_CELL_ID,
-  NEUTRAL_CELL_ID,
-  getDpsChart,
-} from '../../lib/nikke-sim/dpschart-cache.js';
-import { loadPortraitSlug } from '../../lib/nikke-sim/portrait.js';
-import { iconAttachment, ICON_URL, NS_ICON } from '../../lib/nikke-sim/icon.js';
+  DEFAULT_DPS_CELL,
+  NEUTRAL_DPS_CELL,
+  dpsImageUrl,
+  type DpsElement,
+} from '../../lib/nikkesim/client.js';
+import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
 
-const ELEMENTS = ['fire', 'water', 'wind', 'electric', 'iron'] as const;
+const ELEMENTS: DpsElement[] = ['fire', 'water', 'wind', 'electric', 'iron'];
 const ELEMENT_CHOICES = ELEMENTS.map((e) => ({
   name: e.charAt(0).toUpperCase() + e.slice(1),
   value: e,
 }));
-
-const CHART_PNG = 'dps-chart.png';
 
 export const command: Command = {
   data: new SlashCommandBuilder()
@@ -50,12 +36,19 @@ export const command: Command = {
     await interaction.deferReply();
 
     const elementFilter = interaction.options.getString('element');
-    const cellId =
-      elementFilter === 'neutral' ? NEUTRAL_CELL_ID : DEFAULT_CELL_ID;
+    // 'neutral' is a different CELL (no elemental advantage for anyone), not
+    // an element filter; the five real elements filter the default cell.
+    const cell =
+      elementFilter === 'neutral' ? NEUTRAL_DPS_CELL : DEFAULT_DPS_CELL;
+    const element =
+      elementFilter && elementFilter !== 'neutral'
+        ? (elementFilter as DpsElement)
+        : undefined;
 
-    let chart;
+    // Top-10 windowed chart rendered by nikkesim.app (manifest-hashed URL).
+    let imageUrl: string;
     try {
-      chart = await getDpsChart();
+      imageUrl = await dpsImageUrl({ cell, element });
     } catch {
       await interaction.editReply(
         'Could not fetch DPS data from nikkesim.app — try again later.'
@@ -63,92 +56,17 @@ export const command: Command = {
       return;
     }
 
-    const cell = chart.cells[cellId];
-    if (!cell) {
-      await interaction.editReply(
-        'DPS data unavailable for this configuration.'
-      );
-      return;
-    }
-
-    // Build bars, optionally filtering by element.
-    const bars: DpsBar[] = cell
-      .filter(([slug]) => {
-        const u = chart.units[slug];
-        if (!u?.chartPop) {
-          return false;
-        }
-        if (
-          elementFilter &&
-          elementFilter !== 'neutral' &&
-          !u.elements.some(
-            (e) => e.toLowerCase() === elementFilter.toLowerCase()
-          )
-        ) {
-          return false;
-        }
-        return true;
-      })
-      .map(([slug, dps]) => {
-        const u = chart.units[slug]!;
-        // Truncate long names to fit the chart's label column (~24 chars at 17px).
-        const MAX_NAME = 24;
-        const name =
-          u.name.length > MAX_NAME
-            ? u.name.slice(0, MAX_NAME - 1).trimEnd() + '…'
-            : u.name;
-        return {
-          name,
-          element: u.element,
-          dps,
-          slug,
-        };
-      });
-
-    if (bars.length === 0) {
-      await interaction.editReply('No units found for that filter.');
-      return;
-    }
-
-    // Load bundled portraits (sync, from disk).
-    for (const b of bars) {
-      b.img = loadPortraitSlug(b.slug) ?? undefined;
-    }
-
-    const title =
-      elementFilter && elementFilter !== 'neutral'
-        ? `Solo Raid DPS — ${elementFilter.charAt(0).toUpperCase() + elementFilter.slice(1)}`
-        : elementFilter === 'neutral'
-          ? 'Solo Raid DPS — Neutral'
-          : 'Solo Raid DPS — Ele Advantage';
-
-    const data: DpsChartData = {
-      title,
-      subtitle: 'Solo · 8/12 · Core 100 · 180s',
-      bars,
-      icon: NS_ICON,
-      footer: 'nikkesim.app/dpschart',
-    };
-
-    const canvas = createCanvas(CHART_W, chartHeight(bars.length, false));
-    const ctx = canvas.getContext('2d');
-    drawDpsChart(ctx as never, data);
-    const png = canvas.toBuffer('image/png');
-
     const embed = new EmbedBuilder()
       .setColor(0x5b9dff)
       .setThumbnail(ICON_URL)
-      .setImage(`attachment://${CHART_PNG}`)
+      .setImage(imageUrl)
       .setDescription(
         `**[Full chart on nikkesim.app](https://www.nikkesim.app/dpschart)**`
       );
 
     await interaction.editReply({
       embeds: [embed],
-      files: [
-        iconAttachment(),
-        new AttachmentBuilder(png, { name: CHART_PNG }),
-      ],
+      files: [iconAttachment()],
     });
   },
 };

@@ -1,10 +1,8 @@
 import { db, userTeams, type UserTeam } from '@app/db';
 import { eq } from 'drizzle-orm';
-import { createCanvas } from '@napi-rs/canvas';
-import { NS_ICON, iconAttachment, ICON_URL } from '../../lib/nikke-sim/icon.js';
+import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
 import {
   ActionRowBuilder,
-  AttachmentBuilder,
   ComponentType,
   EmbedBuilder,
   MessageFlags,
@@ -12,18 +10,9 @@ import {
   StringSelectMenuBuilder,
 } from 'discord.js';
 import type { Command } from '../../types.js';
-import { decodeBuild, type Build } from '../../lib/nikke-sim/build-code.js';
-import {
-  CARD_W,
-  rosterCardHeight,
-  drawRosterCard,
-  type Canvas2DLike,
-  type TeamCardMeta,
-  type RosterCardTeam,
-} from '../../lib/nikke-sim/teamCard.js';
-import { loadPortraitSlug } from '../../lib/nikke-sim/portrait.js';
+import { decodeBuild, type Build } from '../../lib/nikkesim/build-code.js';
+import { rosterImageUrl } from '../../lib/nikkesim/client.js';
 
-const ROSTER_PNG = 'roster-card.png';
 const TEAMBUILDER_URL = 'https://www.nikkesim.app/teambuilder';
 
 /** Filter to roster builds (build.roster is present). */
@@ -38,55 +27,14 @@ function rosterBuilds(rows: UserTeam[]): { row: UserTeam; build: Build }[] {
   return out;
 }
 
-async function renderRosterCard(
-  build: Build,
-  _name: string
-): Promise<Buffer | null> {
+/** Roster-card image URL for a build, or null when there's nothing to render
+ * (empty roster) — the reply then goes out without an image. */
+function cardImageUrl(build: Build, code: string): string | null {
   const roster = build.roster;
   if (!roster || roster.length === 0) {
     return null;
   }
-
-  // Collect all slugs across all teams for a single DB query.
-  const allSlugs = roster.flat().filter((s): s is string => !!s);
-  const uniqueSlugs = [...new Set(allSlugs)];
-  const chars = await db.query.nikkeCharacters.findMany({
-    where: (c, { inArray }) => inArray(c.id, uniqueSlugs),
-  });
-  const charMap = new Map(chars.map((c) => [c.id, c]));
-
-  // Load bundled portraits (sync, from disk — cached inside loadPortraitSlug).
-  const teams: RosterCardTeam[] = [];
-  for (const teamSlugs of roster) {
-    const units = teamSlugs.map((slug) => {
-      const c = slug ? charMap.get(slug) : undefined;
-      return {
-        name: c?.name ?? slug ?? '???',
-        element: c?.attributes?.element ?? 'Iron',
-        img: slug ? (loadPortraitSlug(slug) ?? undefined) : undefined,
-      };
-    });
-    teams.push({ teamDamage: 0, units });
-  }
-
-  const meta: TeamCardMeta = {
-    weakness: build.g.weakness,
-    level: Number(build.g.level) || 400,
-    coreLabel: build.g.coreCustom
-      ? `${build.g.coreCustomVal}% core`
-      : `${Math.round(build.g.core * 100)}% core`,
-    icon: NS_ICON,
-    footer: 'nikkesim.app/roster',
-  };
-
-  const canvas = createCanvas(CARD_W, rosterCardHeight(teams.length));
-  const ctx = canvas.getContext('2d');
-  drawRosterCard(
-    ctx as unknown as Canvas2DLike,
-    { totalDamage: 0, teams },
-    meta
-  );
-  return canvas.toBuffer('image/png');
+  return rosterImageUrl(code);
 }
 
 export const command: Command = {
@@ -129,7 +77,7 @@ export const command: Command = {
         return;
       }
       await interaction.deferReply();
-      const png = await renderRosterCard(match.build, match.row.name);
+      const imageUrl = cardImageUrl(match.build, match.row.code);
       const embed = new EmbedBuilder()
         .setColor(0x5b9dff)
         .setThumbnail(ICON_URL)
@@ -137,14 +85,12 @@ export const command: Command = {
         .setDescription(
           `**[Open in Roster Generator](https://www.nikkesim.app/roster)**`
         );
-      if (png) {
-        embed.setImage(`attachment://${ROSTER_PNG}`);
+      if (imageUrl) {
+        embed.setImage(imageUrl);
       }
       await interaction.editReply({
         embeds: [embed],
-        files: png
-          ? [iconAttachment(), new AttachmentBuilder(png, { name: ROSTER_PNG })]
-          : [iconAttachment()],
+        files: [iconAttachment()],
       });
       return;
     }
@@ -191,7 +137,7 @@ export const command: Command = {
     // Show "Loading…" in the ephemeral message while rendering.
     await selected.update({ content: 'Loading\u2026', components: [] });
 
-    const png = await renderRosterCard(picked.build, picked.row.name);
+    const imageUrl = cardImageUrl(picked.build, picked.row.code);
     const embed = new EmbedBuilder()
       .setColor(0x5b9dff)
       .setThumbnail(ICON_URL)
@@ -199,15 +145,13 @@ export const command: Command = {
       .setDescription(
         `**[Open in Roster Generator](https://www.nikkesim.app/roster)**`
       );
-    if (png) {
-      embed.setImage(`attachment://${ROSTER_PNG}`);
+    if (imageUrl) {
+      embed.setImage(imageUrl);
     }
     // Post the result publicly so the whole channel can see it.
     await interaction.followUp({
       embeds: [embed],
-      files: png
-        ? [iconAttachment(), new AttachmentBuilder(png, { name: ROSTER_PNG })]
-        : [iconAttachment()],
+      files: [iconAttachment()],
     });
     // Clean up the ephemeral "Loading…" message.
     await interaction.deleteReply().catch(() => null);
