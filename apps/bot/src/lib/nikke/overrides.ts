@@ -1,3 +1,5 @@
+import type { SkillCooldowns } from '@app/db';
+
 /**
  * Manual name overrides for cross-source matching.
  *
@@ -15,10 +17,71 @@
  */
 export const SHEET_NAME_OVERRIDES: Record<string, string> = {
   'little mermaid siren': 'little-mermaid',
-  'rei tentative name': 'rei',
+  // The sheet's "Rei Tentative Name" (C) is the EVA Ayanami clone, NOT the
+  // base-game Rei — route it to the clone's canonical id.
+  'rei tentative name': 'rei-ayanami-tentative-name',
   'mari makinami': 'mari',
   'takina inoue': 'takina',
   'chisato nishikigi': 'chisato',
+};
+
+/**
+ * Synergy character overrides: pin a Synergy character (by its numeric
+ * `characters.id`) to an explicit canonical id + display name. Applied when
+ * seeding the registry in buildCharacters (match.ts), BEFORE the first-wins
+ * normalized-name collision check.
+ *
+ * Needed when a unit's distinguishing marker is a parenthetical that
+ * normalizeName/slugify strips, so the derived slug collides with an unrelated
+ * unit and would be silently dropped. "Rei (Tentative Name)" — the Rebuild
+ * Ayanami clone — normalizes to "rei", colliding with the base-game Rei; pin it
+ * to its Prydwen slug so it survives seeding and its Prydwen tiers attach by id.
+ *
+ *   key   = Synergy characters.id
+ *   value = { id: canonical slug, name: canonical English display name }
+ */
+export const SYNERGY_CHARACTER_OVERRIDES: Record<
+  number,
+  { id: string; name: string }
+> = {
+  99: {
+    id: 'rei-ayanami-tentative-name',
+    name: 'Rei Ayanami (Tentative Name)',
+  },
+};
+
+/**
+ * Characters seeded into the registry even though Nikke Synergy doesn't list
+ * them (yet). Each entry is the unit's English display name; the canonical id is
+ * `slugify(name)`, exactly as for Synergy-seeded characters, so Prydwen /
+ * blablalink / sheet matching — and their override maps — work unchanged.
+ * Synergy-derived fields (synergyId, arena stats, Synergy profile attributes)
+ * stay null until Synergy adds the unit; the portrait is derived from the
+ * blablalink resource_id once the base-stats fetch runs.
+ *
+ * Seeded AFTER Synergy in buildCharacters, so if Synergy later lists a unit that
+ * is also here, the Synergy record wins (first-wins on the normalized name) and
+ * the manual entry becomes a no-op. Add a unit here when it exists on blablalink
+ * / Prydwen / the sheet but is missing from the sync because Synergy lacks it.
+ */
+export const MANUAL_CHARACTERS: string[] = [
+  'Laplace: Ultimate Hero',
+  'Anne: Miracle Fairy',
+];
+
+/**
+ * Manual skill cooldowns: our canonical id → cooldowns, for characters whose
+ * Fandom wiki page can't supply them — usually brand-new units the wiki hasn't
+ * caught up to (a missing page is reported by the sync but can't be scraped).
+ * syncSkillCooldowns writes these in place of the wiki fetch. Cooldowns are
+ * level-independent scalars in seconds; a passive skill is null.
+ *
+ *   key   = canonical character id (slug)
+ *   value = { skill1, skill2, burst } cooldowns (null = passive / no cooldown)
+ */
+export const MANUAL_SKILL_COOLDOWNS: Record<string, SkillCooldowns> = {
+  // Only her burst has a cooldown; both skills are passives.
+  'laplace-ultimate-hero': { skill1: null, skill2: null, burst: 40 },
 };
 
 /**
@@ -43,7 +106,9 @@ export const SHEET_NAME_OVERRIDES: Record<string, string> = {
  *   value = blablalink resource_id (the `nikke=<id>` slider param)
  */
 export const BLABLALINK_RESOURCE_OVERRIDES: Record<string, number> = {
+  rei: 392, // blablalink "Rei" (base-game SMG Defender; the two collab "Rei"s are pinned below)
   'rei-ayanami': 831, // blablalink "Rei" (EVA Unit Zero pilot)
+  'rei-ayanami-tentative-name': 834, // blablalink "Rei (Tentative Name)" (Rebuild Ayanami clone)
   'sakura-suzuhara': 836, // blablalink "Sakura" (WILLE medical officer)
 };
 
@@ -90,6 +155,7 @@ export const PRYDWEN_SLUG_OVERRIDES: Record<string, string> = {
   'snow-white-innocent-days': 'innocent-dayss-snow-white', // note Prydwen's "dayss"
   'helm-aquamarine': 'aqua-marine-helm',
   'asuka-wille': 'asuka-shikinami-langley-wille',
+  'anne-miracle-fairy': 'miracle-fairy-anne',
   // Collab units: Prydwen uses full names.
   asuka: 'asuka-shikinami-langley',
   mari: 'mari-makinami-illustrious',
