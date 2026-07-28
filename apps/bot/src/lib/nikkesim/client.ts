@@ -16,18 +16,23 @@
  *      any re-render produces a new URL. We resolve these through the
  *      manifest (see getManifest) rather than guessing filenames.
  *   2. Dynamic URLs — `/api/v1/img/{dps,team,roster,table/...}.png?...`,
- *      which are mutable BUT answer 302 (no-cache) to an immutable,
- *      content-addressed `/api/v1/img/cache/<type>.<hash>.png`. Discord
- *      follows the redirect when it fetches the embed image, and any
- *      re-fetch of the mutable URL is redirected to the CURRENT content —
- *      so handing Discord the un-resolved `*.png?...` URL is safe by the
- *      API's design. We deliberately do NOT resolve the 302 server-side:
- *      it would cost one extra round trip per command for zero correctness
- *      gain (the redirect target is content-addressed either way).
+ *      which are mutable BUT answer 302 to an immutable, content-addressed
+ *      `/api/v1/img/cache/<type>.<hash>.png`. Discord follows the redirect
+ *      when it fetches the embed image and caches the resolved bytes against
+ *      the URL we posted; it does NOT re-fetch later, so each message pins
+ *      the content that was current when it was posted. That is what makes
+ *      the mutable URL safe to hand out — not that Discord keeps up with
+ *      re-renders (it doesn't).
  *
  * Anything that must NOT change under a fixed URL (e.g. a future
  * account-identifying card Discord may cache aggressively) should use
  * fetchImageAttachment() instead of a URL reference.
+ *
+ * VERIFICATION: a URL that 4xx's renders in Discord as a silently absent
+ * image — no error, no trace. So every dynamic URL this module hands out is
+ * checked first (see verifyImageUrl); builders reject rather than return a
+ * URL that will render as a blank card. Manifest URLs skip the check: the
+ * manifest is the API's own assertion that the file exists.
  */
 
 import { AttachmentBuilder } from 'discord.js';
@@ -69,6 +74,9 @@ export interface ImgManifest {
 }
 
 const MANIFEST_TTL_MS = 5 * 60 * 1000; // 5 minutes
+/** After a failed refresh, wait this long before trying again instead of
+ * re-fetching on every single command for the duration of an outage. */
+const MANIFEST_RETRY_MS = 30 * 1000;
 
 let cachedManifest: ImgManifest | null = null;
 let manifestFetchedAt = 0;
@@ -91,8 +99,12 @@ export async function getManifest(): Promise<ImgManifest> {
   manifestInflight = (async () => {
     try {
       const res = await fetch(MANIFEST_URL);
-      if (!res.ok) {
-        throw new Error(`manifest fetch ${res.status}`);
+      // nikkesim.app serves an SPA catch-all, so a mis-routed request comes
+      // back as 200 text/html rather than a 404 — check the type, not just
+      // the status, or a routing regression looks like a valid manifest.
+      const type = res.headers.get('content-type') ?? '';
+      if (!res.ok || !type.includes('application/json')) {
+        throw new Error(`manifest fetch ${res.status} (${type || 'no type'})`);
       }
       const json = (await res.json()) as ImgManifest;
       cachedManifest = json;
@@ -104,6 +116,9 @@ export async function getManifest(): Promise<ImgManifest> {
           '[nikkesim] manifest refresh failed; serving stale copy:',
           err
         );
+        // Back off: pretend the cached copy is MANIFEST_RETRY_MS from expiry
+        // so the next attempt is in 30s, not on the next command.
+        manifestFetchedAt = Date.now() - MANIFEST_TTL_MS + MANIFEST_RETRY_MS;
         return cachedManifest;
       }
       throw err;
@@ -121,6 +136,31 @@ export async function getManifest(): Promise<ImgManifest> {
 async function manifestImageUrl(key: string): Promise<string | null> {
   const img = (await getManifest()).images[key];
   return img ? `${NIKKESIM_BASE_URL}${API_PREFIX}${img.file}` : null;
+}
+
+// ---- verification -----------------------------------------------------------
+
+/**
+ * Check that a dynamic image URL actually renders, and return it unchanged.
+ *
+ * Cheap: the API answers a renderable request with a bodiless 302 to its
+ * content-addressed cache entry, so with `redirect: 'manual'` a success costs
+ * headers only — we never download the PNG. A rejected request answers 4xx
+ * with a short, already user-grade message ("unknown unit 'anne-miracle-fairy'",
+ * "Rapi (AR) is not a charge weapon", "invalid build code"), which becomes the
+ * thrown Error's message so commands can show it verbatim.
+ *
+ * This exists because the bot and nikke-sim drift: nikkeCharacters syncs from
+ * blablalink daily, while nikke-sim's unit set is fixed at its last deploy, so
+ * a freshly-released NIKKE is routinely known here and unknown there.
+ */
+export async function verifyImageUrl(url: string): Promise<string> {
+  const res = await fetch(url, { redirect: 'manual' });
+  if (res.status >= 200 && res.status < 400) {
+    return url;
+  }
+  const detail = (await res.text().catch(() => '')).trim();
+  throw new Error(detail || `nikkesim.app returned ${res.status}`);
 }
 
 // ---- URL builders -----------------------------------------------------------
@@ -166,16 +206,17 @@ export async function dpsImageUrl(opts: DpsImageOptions = {}): Promise<string> {
   } else if (opts.units?.length) {
     params.set('units', opts.units.join(','));
   }
-  return `${NIKKESIM_BASE_URL}${API_PREFIX}dps.png?${params}`;
+  return verifyImageUrl(`${NIKKESIM_BASE_URL}${API_PREFIX}dps.png?${params}`);
 }
 
 export type TableKind = 'ol' | 'charge-speed' | 'max-ammo';
 
 /**
- * Table card image URL. The fully-static tables — OL (always) and generic
- * charge-speed (no unit) — resolve through the manifest (no dynamic OL route
- * exists; on manifest failure this throws and the command should error out).
- * Per-unit tables use the dynamic table routes.
+ * Table card image URL. Both static tables resolve through the manifest; the
+ * two differ in what happens when that misses, because the API is asymmetric:
+ * there is no dynamic `table/ol.png` route (it 404s), so OL has nowhere to
+ * fall back to and throws, while generic charge-speed falls back to its
+ * dynamic route. Per-unit tables always use the dynamic routes.
  */
 export async function tableImageUrl(
   table: TableKind,
@@ -197,35 +238,33 @@ export async function tableImageUrl(
     } catch {
       // fall through to the dynamic generic table
     }
-    return `${NIKKESIM_BASE_URL}${API_PREFIX}table/charge-speed.png`;
+    return verifyImageUrl(
+      `${NIKKESIM_BASE_URL}${API_PREFIX}table/charge-speed.png`
+    );
   }
   if (table === 'max-ammo' && !opts.unit) {
     throw new Error('max-ammo requires a unit');
   }
   const params = new URLSearchParams({ unit: opts.unit! });
-  return `${NIKKESIM_BASE_URL}${API_PREFIX}table/${table}.png?${params}`;
+  return verifyImageUrl(
+    `${NIKKESIM_BASE_URL}${API_PREFIX}table/${table}.png?${params}`
+  );
 }
 
-/** Dynamic team-card URL for a saved share build code (302 → hashed cache). */
-export function teamImageUrl(buildCode: string): string {
-  return `${NIKKESIM_BASE_URL}${API_PREFIX}team.png?b=${encodeURIComponent(buildCode)}`;
+/** Dynamic team-card URL for a saved share build code (302 → hashed cache).
+ * Rejects with the API's message when the code doesn't decode. */
+export function teamImageUrl(buildCode: string): Promise<string> {
+  return verifyImageUrl(
+    `${NIKKESIM_BASE_URL}${API_PREFIX}team.png?b=${encodeURIComponent(buildCode)}`
+  );
 }
 
-/** Dynamic roster-card URL for a saved share build code (302 → hashed cache). */
-export function rosterImageUrl(buildCode: string): string {
-  return `${NIKKESIM_BASE_URL}${API_PREFIX}roster.png?b=${encodeURIComponent(buildCode)}`;
-}
-
-/** Pre-rendered unit card for a slug, or null if the manifest has no card. */
-export function unitCardUrl(slug: string): Promise<string | null> {
-  return manifestImageUrl(`unit/${slug}`);
-}
-
-export type RankBoard = 'burstgen' | 'burstcdr' | 'sustain' | 'buffer';
-
-/** Pre-rendered top-10 rank board, or null if the manifest has no board. */
-export function rankBoardUrl(board: RankBoard): Promise<string | null> {
-  return manifestImageUrl(`rank/${board}`);
+/** Dynamic roster-card URL for a saved share build code (302 → hashed cache).
+ * Rejects with the API's message when the code doesn't decode. */
+export function rosterImageUrl(buildCode: string): Promise<string> {
+  return verifyImageUrl(
+    `${NIKKESIM_BASE_URL}${API_PREFIX}roster.png?b=${encodeURIComponent(buildCode)}`
+  );
 }
 
 // ---- attachment path --------------------------------------------------------
@@ -239,20 +278,23 @@ export function rankBoardUrl(board: RankBoard): Promise<string | null> {
  */
 export async function fetchImageAttachment(
   url: string,
-  name = 'image.png'
+  name?: string
 ): Promise<AttachmentBuilder> {
   const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`image fetch ${res.status} for ${url}`);
+  const type = res.headers.get('content-type') ?? '';
+  // Status alone isn't enough: the SPA catch-all answers a mis-routed path
+  // with 200 text/html, which would otherwise be posted as a .png.
+  if (!res.ok || !type.startsWith('image/')) {
+    throw new Error(
+      `image fetch ${res.status} (${type || 'no type'}) for ${url}`
+    );
   }
   const bytes = Buffer.from(await res.arrayBuffer());
   // Derive a stable filename from the URL path when the caller didn't pick
   // one; Discord requires a name for attachment:// references.
-  if (name === 'image.png') {
-    const base = new URL(url).pathname.split('/').pop();
-    if (base) {
-      name = base;
-    }
-  }
-  return new AttachmentBuilder(bytes, { name });
+  const derived = new URL(url).pathname
+    .split('/')
+    .pop()
+    ?.replace(/[^\w.-]/g, '');
+  return new AttachmentBuilder(bytes, { name: name || derived || 'image.png' });
 }

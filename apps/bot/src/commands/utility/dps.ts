@@ -18,7 +18,7 @@ export const command: Command = {
   data: new SlashCommandBuilder()
     .setName('dps')
     .setDescription(
-      'Solo-raid DPS chart (Solo · 8/12 · Core 100 · Ele Advantage).'
+      'Top-10 solo-raid DPS chart (Solo · 8/12 · Core 100 · Ele Advantage).'
     )
     .addStringOption((o) =>
       o

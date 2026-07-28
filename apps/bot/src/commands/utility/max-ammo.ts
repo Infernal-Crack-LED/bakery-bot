@@ -94,8 +94,21 @@ export const command: Command = {
     }
 
     // The DB character id IS the nikkesim slug (the daily sync keys rows by
-    // it) — the API renders the table server-side from the same data.
-    const imageUrl = await tableImageUrl('max-ammo', { unit: character.id });
+    // it) — the API renders the table server-side from the same data. The two
+    // sides still drift: a NIKKE released since nikke-sim's last deploy is in
+    // our DB but unknown there, so surface the API's reason instead of posting
+    // an embed with a silently blank image.
+    let imageUrl: string;
+    try {
+      imageUrl = await tableImageUrl('max-ammo', { unit: character.id });
+    } catch (err) {
+      await interaction.editReply(
+        `Couldn't render the Max Ammo table for **${character.name}** — ${
+          err instanceof Error ? err.message : 'nikkesim.app is unavailable'
+        }.\n**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**`
+      );
+      return;
+    }
     const embed = new EmbedBuilder()
       .setColor(0xf472b6)
       .setThumbnail(ICON_URL)

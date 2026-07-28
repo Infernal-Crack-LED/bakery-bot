@@ -28,13 +28,23 @@ function teamBuilds(rows: UserTeam[]): { row: UserTeam; build: Build }[] {
 }
 
 /** Team-card image URL for a build, or null when there's nothing to render
- * (no slotted units) — the reply then goes out without an image. */
-function cardImageUrl(build: Build, code: string): string | null {
+ * (no slotted units) or nikke-sim can't render it (an older build code its
+ * decoder rejects, or the site being down) — the reply then goes out without
+ * an image, keeping the name and the Team Builder link. */
+async function cardImageUrl(
+  build: Build,
+  code: string
+): Promise<string | null> {
   const slots = build.s;
   if (!slots || slots.length === 0 || !slots.some((s) => s.slug)) {
     return null;
   }
-  return teamImageUrl(code);
+  try {
+    return await teamImageUrl(code);
+  } catch (err) {
+    console.warn('[teams] team card unavailable:', err);
+    return null;
+  }
 }
 
 export const command: Command = {
@@ -77,7 +87,7 @@ export const command: Command = {
         return;
       }
       await interaction.deferReply();
-      const imageUrl = cardImageUrl(match.build, match.row.code);
+      const imageUrl = await cardImageUrl(match.build, match.row.code);
       const embed = new EmbedBuilder()
         .setColor(0x5b9dff)
         .setThumbnail(ICON_URL)
@@ -137,7 +147,7 @@ export const command: Command = {
     // Show "Loading…" in the ephemeral message while rendering.
     await selected.update({ content: 'Loading\u2026', components: [] });
 
-    const imageUrl = cardImageUrl(picked.build, picked.row.code);
+    const imageUrl = await cardImageUrl(picked.build, picked.row.code);
     const embed = new EmbedBuilder()
       .setColor(0x5b9dff)
       .setThumbnail(ICON_URL)
