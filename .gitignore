@@ -36,3 +36,6 @@ Thumbs.db
 
 # personal scratch (feature wishlist) — kept out of the public repo
 feature-request.md
+
+# browser-saved Prydwen tier-list page consumed by `npm run refresh:prydwen`
+prydwen-tier-list.html

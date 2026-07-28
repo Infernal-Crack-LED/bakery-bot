@@ -17,6 +17,7 @@ import {
   nikkeNameDictionary,
   nikkeSyncRuns,
   NIKKE_LEVEL_MULTIPLIER_KEY,
+  type SkillCooldowns,
 } from '@app/db';
 import { and, eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import {
@@ -37,6 +38,7 @@ import { buildCharacters, normalizeName } from './match.js';
 import {
   BLABLALINK_RESOURCE_OVERRIDES,
   FANDOM_TITLE_OVERRIDES,
+  MANUAL_SKILL_COOLDOWNS,
   PRYDWEN_SLUG_OVERRIDES,
 } from './overrides.js';
 import { PRYDWEN_TIERS } from './prydwen-data.js';
@@ -301,22 +303,27 @@ async function syncSkillCooldowns(): Promise<SkillCooldownResult> {
     if (!existing) {
       continue; // the query guarantees non-null; keeps the merge below type-safe
     }
-    const title =
-      FANDOM_TITLE_OVERRIDES[character.id] ?? fandomTitle(character.name);
-    let cooldowns;
-    try {
-      cooldowns = await fetchSkillCooldowns(title);
-    } catch (error) {
-      const message = (error as Error).message;
-      // A missing page just needs a title override — report, don't fail the run.
-      if (/missingtitle/.test(message)) {
-        unmatched.push(character.name);
-      } else {
-        errors.push(`skill-cooldowns ${character.name}: ${message}`);
+    // A manual cooldown entry (a unit the wiki doesn't have yet) wins over the
+    // Fandom fetch; otherwise scrape the wiki page.
+    let cooldowns: SkillCooldowns | null | undefined =
+      MANUAL_SKILL_COOLDOWNS[character.id];
+    if (!cooldowns) {
+      const title =
+        FANDOM_TITLE_OVERRIDES[character.id] ?? fandomTitle(character.name);
+      try {
+        cooldowns = await fetchSkillCooldowns(title);
+      } catch (error) {
+        const message = (error as Error).message;
+        // A missing page just needs a title override — report, don't fail the run.
+        if (/missingtitle/.test(message)) {
+          unmatched.push(character.name);
+        } else {
+          errors.push(`skill-cooldowns ${character.name}: ${message}`);
+        }
+        continue;
       }
-      continue;
     }
-    // Page exists but has no skill table → likely the wrong page; report it.
+    // No cooldowns (wiki page had no skill table) → likely the wrong page; report.
     if (cooldowns == null) {
       unmatched.push(character.name);
       continue;
