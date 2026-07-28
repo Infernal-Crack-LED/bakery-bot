@@ -20,7 +20,11 @@ import type { NewNikkeCharacter } from '@app/db';
 // The pure name helpers moved to the shared @app/nikke package; re-exported here
 // so existing `./match.js` importers keep working.
 import { normalizeName, slugify, acronym } from '@app/nikke';
-import { SHEET_NAME_OVERRIDES } from './overrides.js';
+import {
+  MANUAL_CHARACTERS,
+  SHEET_NAME_OVERRIDES,
+  SYNERGY_CHARACTER_OVERRIDES,
+} from './overrides.js';
 import type { SheetBuildEntry, SheetCharacter } from './sheet.js';
 import type {
   SynergyArenaStat,
@@ -67,16 +71,24 @@ export function buildCharacters(inputs: SyncInputs): BuildResult {
 
   // 1) Seed the registry from Synergy's character list.
   for (const sc of synergyCharacters) {
+    // A manual override pins this Synergy character to an explicit canonical
+    // id + name (see overrides.ts) — used when the derived slug would collide
+    // with an unrelated unit and the first-wins rule below would drop it.
+    const override = SYNERGY_CHARACTER_OVERRIDES[sc.id];
     const english = dictionary[sc.name];
-    if (!english) {
+    if (!english && !override) {
       untranslated.push(sc.name);
     }
-    const name = english ?? sc.name;
-    const id = slugify(name);
+    const name = override?.name ?? english ?? sc.name;
+    const id = override?.id ?? slugify(name);
     if (!id) {
       continue;
     }
-    const norm = normalizeName(name);
+    // When pinned, key the registry by the override id rather than the display
+    // name: the display name still normalizes into a collision ("Rei
+    // (Tentative Name)" → "rei"), so deriving norm from the id is what keeps
+    // this entry distinct from the unit it would otherwise collide with.
+    const norm = override ? normalizeName(id) : normalizeName(name);
     if (byNorm.has(norm)) {
       continue;
     } // first wins on a slug collision
@@ -96,6 +108,32 @@ export function buildCharacters(inputs: SyncInputs): BuildResult {
     byNorm.set(norm, rec);
     byId.set(rec.id, rec);
     byJp.set(sc.name, rec);
+  }
+
+  // Seed characters Synergy doesn't list (yet) — see MANUAL_CHARACTERS. They use
+  // the English name directly (no Japanese/dictionary), so Synergy-derived fields
+  // (synergyId, arena stats, profile attributes) stay null. Seeded after Synergy
+  // so a unit Synergy later adds wins over the manual fallback (first-wins on the
+  // normalized name) — the manual entry then becomes a no-op.
+  for (const name of MANUAL_CHARACTERS) {
+    const id = slugify(name);
+    if (!id) {
+      continue;
+    }
+    const norm = normalizeName(name);
+    if (byNorm.has(norm)) {
+      continue; // Synergy (or an earlier manual entry) already has this unit
+    }
+    const rec: NewNikkeCharacter = {
+      id,
+      name,
+      // No invented aliases — a manual unit's only aliases come from the sheet's
+      // abbreviations column (folded in below) if the sheet lists it.
+      aliases: [],
+    };
+    characters.push(rec);
+    byNorm.set(norm, rec);
+    byId.set(rec.id, rec);
   }
 
   // Attach profile attributes (joined by the shared Japanese name).

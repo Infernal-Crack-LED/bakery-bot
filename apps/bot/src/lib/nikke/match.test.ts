@@ -40,7 +40,7 @@ describe('buildCharacters', () => {
       { id: 1, name: 'モラン', imageFilename: '0001.jpg' },
       { id: 50, name: 'スターアニス', imageFilename: '0050.jpg' },
       { id: 7, name: 'アニス', imageFilename: '0007.jpg' },
-      { id: 99, name: '謎キャラ', imageFilename: '0099.jpg' }, // no translation
+      { id: 98, name: '謎キャラ', imageFilename: '0098.jpg' }, // no translation
     ],
     dictionary,
     arenaStats: [
@@ -114,6 +114,72 @@ describe('buildCharacters', () => {
       res.characters.find((c) => c.id === 'takina')?.sheetData?.priority
     ).toBe('Medium Priority');
     expect(res.unmatched.sheet).not.toContain('Takina Inoue');
+  });
+
+  it('pins a collision-prone Synergy character to its override id instead of dropping it', () => {
+    // "Rei (Tentative Name)" (Synergy id 99) normalizes to "rei", colliding with
+    // the base-game Rei. SYNERGY_CHARACTER_OVERRIDES pins it to its Prydwen slug
+    // so it survives seeding rather than being lost to the first-wins rule.
+    const res = buildCharacters({
+      synergyCharacters: [
+        { id: 28, name: 'ライ', imageFilename: '0028.jpg' },
+        { id: 99, name: 'アヤナミ風', imageFilename: '0099.jpg' },
+      ],
+      dictionary: { ライ: 'Rei', アヤナミ風: 'Rei (Tentative Name)' },
+      arenaStats: [],
+      // The sheet's collab "Rei Tentative Name" must route to the clone, not the
+      // base-game Rei (SHEET_NAME_OVERRIDES).
+      sheetPriority: [
+        {
+          name: 'Rei Tentative Name',
+          priority: 'Low Priority',
+          annotations: ['C'],
+        },
+      ],
+    });
+    const ids = res.characters.map((c) => c.id);
+    expect(ids).toContain('rei');
+    expect(ids).toContain('rei-ayanami-tentative-name');
+    const tentative = res.characters.find(
+      (c) => c.id === 'rei-ayanami-tentative-name'
+    );
+    expect(tentative?.name).toBe('Rei Ayanami (Tentative Name)');
+    expect(tentative?.synergyId).toBe(99);
+    expect(tentative?.sheetData?.priority).toBe('Low Priority');
+    // The base-game Rei keeps no sheet data — the entry belongs to the clone.
+    expect(
+      res.characters.find((c) => c.id === 'rei')?.sheetData?.priority
+    ).toBeUndefined();
+    expect(res.unmatched.untranslated).not.toContain('アヤナミ風');
+  });
+
+  it('seeds characters Synergy does not list (MANUAL_CHARACTERS)', () => {
+    const res = buildCharacters({
+      synergyCharacters: [],
+      dictionary: {},
+      arenaStats: [],
+      sheetPriority: [
+        {
+          name: 'Anne: Miracle Fairy',
+          priority: 'PvP Medium Priority',
+          annotations: ['L'],
+        },
+      ],
+    });
+    // Units Synergy lacks are registered from MANUAL_CHARACTERS by display name,
+    // with no Synergy id.
+    const laplace = res.characters.find(
+      (c) => c.id === 'laplace-ultimate-hero'
+    );
+    expect(laplace?.name).toBe('Laplace: Ultimate Hero');
+    expect(laplace?.synergyId).toBeUndefined();
+    // Manual units get no invented acronym alias.
+    expect(laplace?.aliases).toEqual([]);
+    const anne = res.characters.find((c) => c.id === 'anne-miracle-fairy');
+    expect(anne?.name).toBe('Anne: Miracle Fairy');
+    // The sheet entry matches the manually-seeded Anne by normalized name.
+    expect(anne?.sheetData?.priority).toBe('PvP Medium Priority');
+    expect(res.unmatched.sheet).not.toContain('Anne: Miracle Fairy');
   });
 
   it('joins profile attributes by the shared Japanese name, keeping 3RL', () => {
