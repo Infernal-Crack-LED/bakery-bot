@@ -3,6 +3,11 @@ import { AttachmentBuilder } from 'discord.js';
 import { encodeBuild, type Build } from '../../lib/nikkesim/build-code.js';
 
 const CARD_URL = 'https://www.nikkesim.app/api/v1/img/roster.png?b=abc';
+const SHARED_CARD_URL =
+  'https://www.nikkesim.app/api/v1/img/roster.png?id=cfg-1';
+// hoisted: the client.js mock factory reads it, and that factory runs during
+// import resolution — before a plain top-level const would be initialized.
+const { SITE } = vi.hoisted(() => ({ SITE: 'https://www.nikkesim.app' }));
 
 const slot = (slug: string | null) =>
   ({
@@ -50,9 +55,20 @@ vi.mock('drizzle-orm', () => ({ eq: vi.fn() }));
 
 vi.mock('../../lib/nikkesim/client.js', () => ({
   rosterCardImage: vi.fn(() => Promise.resolve({ url: CARD_URL })),
+  rosterCardImageById: vi.fn(() => Promise.resolve({ url: SHARED_CARD_URL })),
+  NIKKESIM_BASE_URL: SITE, // simPageUrl builds its links off this
+}));
+// simPageUrl is the real one — the link it builds is what these tests assert.
+vi.mock('../../lib/nikkesim/shared-config.js', async (orig) => ({
+  ...(await orig<typeof import('../../lib/nikkesim/shared-config.js')>()),
+  findSharedResultsId: vi.fn(() => Promise.resolve(null)),
 }));
 
-import { rosterCardImage } from '../../lib/nikkesim/client.js';
+import {
+  rosterCardImage,
+  rosterCardImageById,
+} from '../../lib/nikkesim/client.js';
+import { findSharedResultsId } from '../../lib/nikkesim/shared-config.js';
 import { command } from './roster.js';
 
 const row = (name: string, code: string) => ({
@@ -81,6 +97,10 @@ describe('/roster', () => {
   beforeEach(() => {
     vi.mocked(rosterCardImage).mockClear();
     vi.mocked(rosterCardImage).mockResolvedValue({ url: CARD_URL });
+    vi.mocked(rosterCardImageById).mockClear();
+    vi.mocked(rosterCardImageById).mockResolvedValue({ url: SHARED_CARD_URL });
+    vi.mocked(findSharedResultsId).mockClear();
+    vi.mocked(findSharedResultsId).mockResolvedValue(null);
     findMany.mockResolvedValue([row('Solo', ROSTER_CODE)]);
   });
 
@@ -101,6 +121,61 @@ describe('/roster', () => {
     expect(embed.title).toBe('Solo');
   });
 
+  // The whole point of the shared-config lookup: a bare build code renders
+  // `0 total damage` because nikke-sim never sims server-side, so when the user
+  // has shared THIS build the card must come from the id that carries results.
+  it('renders from the shared config when the user has one for this build', async () => {
+    vi.mocked(findSharedResultsId).mockResolvedValue('cfg-1');
+    const { interaction, editReply } = fakeInteraction();
+    await command.execute(interaction as never);
+    expect(findSharedResultsId).toHaveBeenCalledWith(
+      'u1',
+      'roster',
+      ROSTER_CODE
+    );
+    expect(rosterCardImageById).toHaveBeenCalledWith('cfg-1');
+    expect(rosterCardImage).not.toHaveBeenCalled();
+    expect(editReply.mock.calls[0]![0].embeds[0].toJSON().image.url).toBe(
+      SHARED_CARD_URL
+    );
+  });
+
+  // A roster build code CANNOT reopen a roster — nikke-sim's `?b=` boot path
+  // never reads `.roster`. Only the share id restores the grid, so that is the
+  // one case where the link carries a payload at all.
+  it('links to the Roster Sim tab, using the share id when there is one', async () => {
+    const { interaction, editReply } = fakeInteraction();
+    await command.execute(interaction as never);
+    const bare = editReply.mock.calls[0]![0].embeds[0].toJSON().description;
+    expect(bare).toContain('Open in Roster Sim');
+    expect(bare).toContain(`${SITE}/rostersim)`);
+    expect(bare).not.toContain('?b=');
+
+    vi.mocked(findSharedResultsId).mockResolvedValue('cfg-1');
+    const second = fakeInteraction();
+    await command.execute(second.interaction as never);
+    expect(
+      second.editReply.mock.calls[0]![0].embeds[0].toJSON().description
+    ).toContain(`${SITE}/rostersim?id=cfg-1`);
+  });
+
+  // `sim-share` rows are evictable, so a matched id can 404 by render time.
+  // That must cost the numbers, not the card.
+  it('falls back to the build code when the shared config no longer resolves', async () => {
+    vi.mocked(findSharedResultsId).mockResolvedValue('cfg-gone');
+    vi.mocked(rosterCardImageById).mockRejectedValueOnce(
+      new Error('unknown config id')
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { interaction, editReply } = fakeInteraction();
+    await command.execute(interaction as never);
+    expect(rosterCardImage).toHaveBeenCalledWith(ROSTER_CODE);
+    expect(editReply.mock.calls[0]![0].embeds[0].toJSON().image.url).toBe(
+      CARD_URL
+    );
+    warn.mockRestore();
+  });
+
   // See teams.test.ts — a card the API can't render costs the image, not the
   // whole reply.
   it('drops the image but keeps the embed when the card cannot be rendered', async () => {
@@ -112,7 +187,7 @@ describe('/roster', () => {
     await command.execute(interaction as never);
     const embed = editReply.mock.calls[0]![0].embeds[0].toJSON();
     expect(embed.image).toBeUndefined();
-    expect(embed.description).toContain('Roster Generator');
+    expect(embed.description).toContain('Open in Roster Sim');
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });

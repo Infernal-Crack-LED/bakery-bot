@@ -363,6 +363,24 @@ export function rosterCardImage(buildCode: string): Promise<CardImage> {
   return buildCodeCard('roster', buildCode);
 }
 
+/**
+ * Roster card for a SHARED CONFIG id — the request form that also carries the
+ * sim's stored results, so the card draws real damage instead of the zeros a
+ * bare build code renders (see lib/nikkesim/shared-config.ts).
+ *
+ * Always a URL: an id is a uuid, so this can't approach the embed URL limit the
+ * build-code path has to work around.
+ *
+ * Rejects when the id no longer resolves — `sim-share` rows are evictable, so a
+ * 404 here is expected rather than exceptional, and the caller falls back to
+ * the build code.
+ */
+export function rosterCardImageById(id: string): Promise<CardImage> {
+  return verifyImageUrl(
+    `${NIKKESIM_BASE_URL}${API_PREFIX}roster.png?id=${encodeURIComponent(id)}`
+  ).then((url) => ({ url }));
+}
+
 // ---- attachment path --------------------------------------------------------
 
 /**

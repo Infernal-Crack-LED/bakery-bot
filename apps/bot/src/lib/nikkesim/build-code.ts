@@ -82,14 +82,14 @@ function b64ToBytes(b64: string): Uint8Array {
   const bin = (globalThis as any).atob(b64);
   return Uint8Array.from(bin, (c: string) => c.charCodeAt(0));
 }
-function b64urlEncode(str: string): string {
+export function b64urlEncode(str: string): string {
   const bytes = new TextEncoder().encode(str);
   return bytesToB64(bytes)
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');
 }
-function b64urlDecode(code: string): string {
+export function b64urlDecode(code: string): string {
   const b64 = code.replace(/-/g, '+').replace(/_/g, '/');
   const pad = b64.length % 4 ? '='.repeat(4 - (b64.length % 4)) : '';
   return new TextDecoder().decode(b64ToBytes(b64 + pad));
