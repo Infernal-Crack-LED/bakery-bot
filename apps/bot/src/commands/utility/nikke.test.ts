@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NikkeCharacter } from '@app/db';
-import { buildEmbed, formatBurstGen } from './nikke.js';
+import { buildEmbed, formatBurstGen, unitCardFileName } from './nikke.js';
 
 describe('formatBurstGen', () => {
   it('parses the current "Auto: x   Manual: y" format', () => {
@@ -15,6 +15,23 @@ describe('formatBurstGen', () => {
   it('still parses the legacy "x (y)" format', () => {
     expect(formatBurstGen('High (Medium)')).toBe(
       '**Burst Gen** High (auto) | Medium (manual)'
+    );
+  });
+});
+
+describe('unitCardFileName', () => {
+  it('slugifies the name and keeps the .png extension', () => {
+    expect(unitCardFileName({ id: 'anis-star', name: 'Anis: Star' })).toBe(
+      'anis-star.png'
+    );
+    expect(
+      unitCardFileName({ id: 'rapi-red-hood', name: 'Rapi: Red Hood' })
+    ).toBe('rapi-red-hood.png');
+  });
+
+  it('falls back to the id when the name has no usable characters', () => {
+    expect(unitCardFileName({ id: 'mystery', name: '???' })).toBe(
+      'mystery.png'
     );
   });
 });
