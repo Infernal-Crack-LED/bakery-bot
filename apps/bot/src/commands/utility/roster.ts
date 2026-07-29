@@ -16,7 +16,10 @@ import {
   rosterCardImageById,
   type CardImage,
 } from '../../lib/nikkesim/client.js';
-import { findSharedResultsId } from '../../lib/nikkesim/shared-config.js';
+import {
+  findSharedResultsId,
+  simPageUrl,
+} from '../../lib/nikkesim/shared-config.js';
 
 const TEAMBUILDER_URL = 'https://www.nikkesim.app/teambuilder';
 
@@ -35,7 +38,7 @@ function rosterBuilds(rows: UserTeam[]): { row: UserTeam; build: Build }[] {
 /** Roster card for a build, or null when there's nothing to render (empty
  * roster) or nikke-sim can't render it (an older build code its decoder
  * rejects, or the site being down) — the reply then goes out without an image,
- * keeping the name and the Roster Generator link.
+ * keeping the name and the Roster Sim link.
  *
  * Renders from the user's SHARE of this build when they have one, because that
  * is the only payload carrying the sim's results: a bare build code makes
@@ -44,17 +47,11 @@ function rosterBuilds(rows: UserTeam[]): { row: UserTeam; build: Build }[] {
  * shared has no snapshot to find, and still gets the zeroed card — that data
  * does not exist anywhere for the bot to fetch. */
 async function rosterCard(
-  build: Build,
   code: string,
-  discordId: string
+  sharedId: string | null
 ): Promise<CardImage | null> {
-  const roster = build.roster;
-  if (!roster || roster.length === 0) {
-    return null;
-  }
   // `sim-share` rows are evictable, so a hit here can still 404 by the time we
   // render it — that costs the numbers, not the card.
-  const sharedId = await findSharedResultsId(discordId, 'roster', code);
   if (sharedId) {
     try {
       return await rosterCardImageById(sharedId);
@@ -71,6 +68,26 @@ async function rosterCard(
     console.warn('[roster] roster card unavailable:', err);
     return null;
   }
+}
+
+/** The card and the "Open in Roster Sim" link for one saved roster.
+ *
+ * Both want the same share, so it is resolved ONCE here: the id is what makes
+ * the card carry real damage AND what makes the link reopen this exact grid
+ * (a `?b=` build code cannot — nikke-sim's boot path never reads `.roster`). */
+async function rosterView(
+  build: Build,
+  code: string,
+  discordId: string
+): Promise<{ card: CardImage | null; pageUrl: string }> {
+  const populated = !!build.roster?.length;
+  const sharedId = populated
+    ? await findSharedResultsId(discordId, 'roster', code)
+    : null;
+  return {
+    card: populated ? await rosterCard(code, sharedId) : null,
+    pageUrl: simPageUrl('roster', { sharedId }),
+  };
 }
 
 /** Icon thumbnail, plus the card itself when it came back as bytes rather
@@ -119,7 +136,7 @@ export const command: Command = {
         return;
       }
       await interaction.deferReply();
-      const card = await rosterCard(
+      const { card, pageUrl } = await rosterView(
         match.build,
         match.row.code,
         interaction.user.id
@@ -128,9 +145,7 @@ export const command: Command = {
         .setColor(0x5b9dff)
         .setThumbnail(ICON_URL)
         .setTitle(match.row.name)
-        .setDescription(
-          `**[Open in Roster Generator](https://www.nikkesim.app/roster)**`
-        );
+        .setDescription(`**[Open in Roster Sim](${pageUrl})**`);
       if (card) {
         embed.setImage(card.url);
       }
@@ -183,7 +198,7 @@ export const command: Command = {
     // Show "Loading…" in the ephemeral message while rendering.
     await selected.update({ content: 'Loading\u2026', components: [] });
 
-    const card = await rosterCard(
+    const { card, pageUrl } = await rosterView(
       picked.build,
       picked.row.code,
       interaction.user.id
@@ -192,9 +207,7 @@ export const command: Command = {
       .setColor(0x5b9dff)
       .setThumbnail(ICON_URL)
       .setTitle(picked.row.name)
-      .setDescription(
-        `**[Open in Roster Generator](https://www.nikkesim.app/roster)**`
-      );
+      .setDescription(`**[Open in Roster Sim](${pageUrl})**`);
     if (card) {
       embed.setImage(card.url);
     }

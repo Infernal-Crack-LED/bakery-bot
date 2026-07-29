@@ -29,6 +29,7 @@
 import { db, userProfiles } from '@app/db';
 import { and, desc, eq } from 'drizzle-orm';
 import { b64urlDecode } from './build-code.js';
+import { NIKKESIM_BASE_URL } from './client.js';
 
 /**
  * The `user_profiles.kind` nikke-sim writes shares under. THIS IS A CONTRACT —
@@ -79,6 +80,39 @@ export function decodeSharedConfig(code: string): SharedConfigHeader | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The nikkesim.app page a saved team/roster opens on — the "Open in …" link
+ * under a card. Mirrors nikke-sim's own `configPageUrl` (src/server/config-store.ts)
+ * and its canonical tab paths (web/src/App.tsx TAB_PATHS: Team Sim is `/`, Roster
+ * Sim is `/rostersim`).
+ *
+ * WHICH PARAM, AND WHY IT DIFFERS BY KIND. `?id=` routes through the web's
+ * `applySavedBuild`, which restores everything — the loadout, the boss globals,
+ * the roster grid, union mode — and switches to the right tab. `?b=` is the
+ * self-contained fallback, but its boot path reads only `.s`, `.g` and
+ * `.blocked`: NOTHING reads `boot.roster`. So a build code opens a team
+ * perfectly and cannot open a roster at all.
+ *
+ * That is why a roster with no share gets a bare `/rostersim`. Attaching `?b=`
+ * there would quietly apply this roster's boss globals and shared loadout on top
+ * of whatever grid the visitor already had in localStorage — a wrong state that
+ * looks like a right one. Landing them on the correct, untouched tab is the
+ * honest answer until `?b=` learns to carry the grid.
+ */
+export function simPageUrl(
+  kind: 'team' | 'roster',
+  opts: { sharedId?: string | null; buildCode?: string | null } = {}
+): string {
+  const path = kind === 'roster' ? '/rostersim' : '/';
+  if (opts.sharedId) {
+    return `${NIKKESIM_BASE_URL}${path}?id=${encodeURIComponent(opts.sharedId)}`;
+  }
+  if (kind === 'team' && opts.buildCode) {
+    return `${NIKKESIM_BASE_URL}${path}?b=${encodeURIComponent(opts.buildCode)}`;
+  }
+  return `${NIKKESIM_BASE_URL}${path}`;
 }
 
 /**

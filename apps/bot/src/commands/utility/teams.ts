@@ -12,6 +12,10 @@ import {
 import type { Command } from '../../types.js';
 import { decodeBuild, type Build } from '../../lib/nikkesim/build-code.js';
 import { teamCardImage, type CardImage } from '../../lib/nikkesim/client.js';
+import {
+  findSharedResultsId,
+  simPageUrl,
+} from '../../lib/nikkesim/shared-config.js';
 
 const TEAMBUILDER_URL = 'https://www.nikkesim.app/teambuilder';
 
@@ -42,6 +46,18 @@ async function teamCard(build: Build, code: string): Promise<CardImage | null> {
     console.warn('[teams] team card unavailable:', err);
     return null;
   }
+}
+
+/** The "Open in Team Sim" link for one saved team.
+ *
+ * Prefers the user's share of this build: `?id=` restores the team AND the sim
+ * numbers behind it. `?b=` is a complete fallback here — unlike a roster, a team
+ * is fully carried by its build code (nikke-sim's boot path reads `.s` and `.g`,
+ * which is all a team is). Both land on the Sim tab, which is where a saved team
+ * belongs — the old link opened the Team Builder, a different tool. */
+async function teamPageUrl(code: string, discordId: string): Promise<string> {
+  const sharedId = await findSharedResultsId(discordId, 'team', code);
+  return simPageUrl('team', { sharedId, buildCode: code });
 }
 
 /** Icon thumbnail, plus the card itself when it came back as bytes rather
@@ -95,7 +111,7 @@ export const command: Command = {
         .setThumbnail(ICON_URL)
         .setTitle(match.row.name)
         .setDescription(
-          `**[Open in Team Builder](${TEAMBUILDER_URL}?b=${match.row.code})**`
+          `**[Open in Team Sim](${await teamPageUrl(match.row.code, interaction.user.id)})**`
         );
       if (card) {
         embed.setImage(card.url);
@@ -155,7 +171,7 @@ export const command: Command = {
       .setThumbnail(ICON_URL)
       .setTitle(picked.row.name)
       .setDescription(
-        `**[Open in Team Builder](${TEAMBUILDER_URL}?b=${picked.row.code})**`
+        `**[Open in Team Sim](${await teamPageUrl(picked.row.code, interaction.user.id)})**`
       );
     if (card) {
       embed.setImage(card.url);
