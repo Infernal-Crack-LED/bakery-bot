@@ -11,7 +11,12 @@ import {
 } from 'discord.js';
 import type { Command } from '../../types.js';
 import { decodeBuild, type Build } from '../../lib/nikkesim/build-code.js';
-import { rosterCardImage, type CardImage } from '../../lib/nikkesim/client.js';
+import {
+  rosterCardImage,
+  rosterCardImageById,
+  type CardImage,
+} from '../../lib/nikkesim/client.js';
+import { findSharedResultsId } from '../../lib/nikkesim/shared-config.js';
 
 const TEAMBUILDER_URL = 'https://www.nikkesim.app/teambuilder';
 
@@ -30,14 +35,35 @@ function rosterBuilds(rows: UserTeam[]): { row: UserTeam; build: Build }[] {
 /** Roster card for a build, or null when there's nothing to render (empty
  * roster) or nikke-sim can't render it (an older build code its decoder
  * rejects, or the site being down) — the reply then goes out without an image,
- * keeping the name and the Roster Generator link. */
+ * keeping the name and the Roster Generator link.
+ *
+ * Renders from the user's SHARE of this build when they have one, because that
+ * is the only payload carrying the sim's results: a bare build code makes
+ * nikke-sim draw `0 total damage` with empty bars, since the render API never
+ * sims (see lib/nikkesim/shared-config.ts). A saved roster the user never
+ * shared has no snapshot to find, and still gets the zeroed card — that data
+ * does not exist anywhere for the bot to fetch. */
 async function rosterCard(
   build: Build,
-  code: string
+  code: string,
+  discordId: string
 ): Promise<CardImage | null> {
   const roster = build.roster;
   if (!roster || roster.length === 0) {
     return null;
+  }
+  // `sim-share` rows are evictable, so a hit here can still 404 by the time we
+  // render it — that costs the numbers, not the card.
+  const sharedId = await findSharedResultsId(discordId, 'roster', code);
+  if (sharedId) {
+    try {
+      return await rosterCardImageById(sharedId);
+    } catch (err) {
+      console.warn(
+        '[roster] shared card unavailable, using the build code:',
+        err
+      );
+    }
   }
   try {
     return await rosterCardImage(code);
@@ -93,7 +119,11 @@ export const command: Command = {
         return;
       }
       await interaction.deferReply();
-      const card = await rosterCard(match.build, match.row.code);
+      const card = await rosterCard(
+        match.build,
+        match.row.code,
+        interaction.user.id
+      );
       const embed = new EmbedBuilder()
         .setColor(0x5b9dff)
         .setThumbnail(ICON_URL)
@@ -153,7 +183,11 @@ export const command: Command = {
     // Show "Loading…" in the ephemeral message while rendering.
     await selected.update({ content: 'Loading\u2026', components: [] });
 
-    const card = await rosterCard(picked.build, picked.row.code);
+    const card = await rosterCard(
+      picked.build,
+      picked.row.code,
+      interaction.user.id
+    );
     const embed = new EmbedBuilder()
       .setColor(0x5b9dff)
       .setThumbnail(ICON_URL)
