@@ -261,6 +261,24 @@ export async function tableImageUrl(
   );
 }
 
+/**
+ * Resource Calculator infographic (/ai — Anomaly Interception): daily custom
+ * module / T9 gear / fragment income for BOTH boss families (Kraken, then
+ * other bosses), stacked, at the given tier. Always the dynamic route — every
+ * tier is its own render, so there is no manifest entry to resolve first
+ * (unlike the static OL table or the generic charge-speed table).
+ */
+export function resourcesImageUrl(tier?: number): Promise<string> {
+  const params = new URLSearchParams();
+  if (tier !== undefined) {
+    params.set('tier', String(tier));
+  }
+  const qs = params.toString();
+  return verifyImageUrl(
+    `${NIKKESIM_BASE_URL}${API_PREFIX}resources.png${qs ? `?${qs}` : ''}`
+  );
+}
+
 // ---- unit cards -------------------------------------------------------------
 
 /**
