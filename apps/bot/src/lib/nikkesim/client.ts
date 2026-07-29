@@ -68,9 +68,19 @@ export interface ManifestImage {
 
 export interface ImgManifest {
   generatedAt: string;
-  /** Keyed by logical key: 'unit/<slug>', 'rank/<board>', 'dps/<cell>.<ele|all>',
-   * 'table/ol', 'table/charge-speed'. */
+  /** Keyed by logical key: 'unit/<slug>.<variant>', 'rank/<board>',
+   * 'dps/<cell>.<ele|all>', 'table/ol', 'table/charge-speed'. */
   images: Record<string, ManifestImage>;
+  /**
+   * Slugs nikke-sim renders NO unit card for ON PURPOSE — Burst III/Λ units the
+   * sim does not support, whose card would be two empty DPS plates and nothing
+   * else. Sorted, and disjoint from `images`.
+   *
+   * Optional: a nikke-sim deploy predating the field has no such key, and the
+   * bot must not break on it. Absent ⇒ treat as empty, which is exactly the
+   * old behaviour.
+   */
+  notSimSupported?: string[];
 }
 
 const MANIFEST_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -249,6 +259,55 @@ export async function tableImageUrl(
   return verifyImageUrl(
     `${NIKKESIM_BASE_URL}${API_PREFIX}table/${table}.png?${params}`
   );
+}
+
+// ---- unit cards -------------------------------------------------------------
+
+/**
+ * Unit-card variants. `discord` is the 2:1 landscape card sized for the classic
+ * embed image (~550px wide); `twitter` is the 3:4 portrait launch asset.
+ */
+export type UnitCardVariant = 'discord' | 'twitter';
+
+/**
+ * Absolute URL of a unit's pre-rendered card, or null when this deploy has no
+ * card for it — in which case the caller MUST fall back rather than embed a
+ * broken image.
+ *
+ * A null is NOT one thing. The pre-rendered set is frozen at nikke-sim deploy
+ * time, so a NIKKE synced afterwards has no card yet (transient); a manifest
+ * outage looks the same; and some units have no card on purpose and never will
+ * (see isNotSimSupported). Ask that before telling a user anything about why.
+ */
+export async function unitCardUrl(
+  slug: string,
+  variant: UnitCardVariant = 'discord'
+): Promise<string | null> {
+  try {
+    return await manifestImageUrl(`unit/${slug}.${variant}`);
+  } catch {
+    // Manifest unavailable — no card to point at, and no dynamic route to fall
+    // back to. The caller keeps its hand-built embed.
+    return null;
+  }
+}
+
+/**
+ * True when nikke-sim deliberately renders no card for this unit — an
+ * unsupported Burst III/Λ, which is also absent from the DPS chart, so /nikke
+ * can say so instead of silently showing an embed with no sim information.
+ *
+ * Answers FALSE on a manifest outage, and false for a deploy with no
+ * `notSimSupported` field at all. Failing closed here would label every unit
+ * unsupported during an outage — the exact mislabelling this field exists to
+ * prevent. "I don't know" must read as "not unsupported".
+ */
+export async function isNotSimSupported(slug: string): Promise<boolean> {
+  try {
+    return (await getManifest()).notSimSupported?.includes(slug) ?? false;
+  } catch {
+    return false;
+  }
 }
 
 // ---- build-code cards (team / roster) ---------------------------------------

@@ -12,7 +12,11 @@ import {
   PORTRAIT_ATTACHMENT_NAME,
   fetchPortraitThumbnail,
 } from '../../lib/nikke/portrait.js';
-import { DEFAULT_DPS_CELL } from '../../lib/nikkesim/client.js';
+import {
+  DEFAULT_DPS_CELL,
+  isNotSimSupported,
+  unitCardUrl,
+} from '../../lib/nikkesim/client.js';
 import {
   getDpsChart,
   lookupRank,
@@ -270,17 +274,35 @@ export const command: Command = {
     // Defer: we may fetch + crop the portrait (network I/O) before replying.
     await interaction.deferReply();
 
+    // Prefer nikkesim.app's pre-rendered unit card: one hosted, content-hashed
+    // image carrying the portrait, the rank tiles, the neighbourhood bars and
+    // the build notes — strictly more than this embed can show, and the bot
+    // renders nothing to produce it.
+    //
+    // It is NOT always available: the card set is frozen at nikke-sim deploy
+    // time, so a newly-synced NIKKE (or a manifest outage) has none, and some
+    // units have none on purpose. Those cases keep the hand-built embed below,
+    // which is why both paths still exist.
+    const cardUrl = await unitCardUrl(character.id, 'discord');
+
     // Crop the stored portrait into a 1:1 face box and attach it; on any failure
     // fall back to the plain embed (hot-linked portrait, or none).
-    const cropped = character.imageUrl
-      ? await fetchPortraitThumbnail(character.imageUrl)
-      : null;
+    // Skipped entirely when the card is available — the card already contains
+    // the portrait, so cropping one would be wasted network I/O.
+    const cropped =
+      !cardUrl && character.imageUrl
+        ? await fetchPortraitThumbnail(character.imageUrl)
+        : null;
     const embed = buildEmbed(
       character,
       cropped ? `attachment://${PORTRAIT_ATTACHMENT_NAME}` : undefined
     );
+    if (cardUrl) {
+      embed.setImage(cardUrl);
+    }
 
     // Sim rank from the precomputed DPS chart (fail-soft: omit on any error).
+    let ranked = false;
     try {
       const chart = await getDpsChart();
       const entry = lookupRank(chart, DEFAULT_DPS_CELL, character.id);
@@ -291,9 +313,25 @@ export const command: Command = {
           value: `**#${entry.rank}** / ${entry.total}  ·  ${entry.dps.toLocaleString()} DPS  ·  ${relScore(entry.dps, top)} rel`,
           inline: true,
         });
+        ranked = true;
       }
     } catch {
       // dpschart unavailable — skip the field silently
+    }
+
+    // An unsupported Burst III/Λ has no card AND no DPS-chart entry, so without
+    // this the user just gets an embed with no sim information and nothing
+    // saying why — this field takes the place of the Sim Rank it explains.
+    // Gated on `!cardUrl` and on the manifest's own list: a unit that is merely
+    // new (or a manifest outage) must NOT be labelled here. `!ranked` guards the
+    // only way both could show at once — the chart and the manifest disagreeing.
+    if (!cardUrl && !ranked && (await isNotSimSupported(character.id))) {
+      embed.addFields({
+        name: '📊 Sim Rank',
+        value:
+          '⚠️ Not supported by the sim — no DPS ranking or unit card for this NIKKE.',
+        inline: true,
+      });
     }
 
     if (cropped) {
