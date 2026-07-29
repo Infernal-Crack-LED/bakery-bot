@@ -248,6 +248,32 @@ describe('tableImageUrl', () => {
   });
 });
 
+describe('resourcesImageUrl', () => {
+  it('uses the dynamic route with no tier param, and verifies it', async () => {
+    const { resourcesImageUrl } = await importClient();
+    const url = await resourcesImageUrl();
+    expect(url).toBe(`${BASE}/api/v1/img/resources.png`);
+    expect(probedUrls()).toEqual([url]);
+  });
+
+  it('appends the tier param when given', async () => {
+    const { resourcesImageUrl } = await importClient();
+    expect(await resourcesImageUrl(3)).toBe(
+      `${BASE}/api/v1/img/resources.png?tier=3`
+    );
+  });
+
+  it('rejects with the API reason for an out-of-range tier', async () => {
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(rejected('tier must be an integer 1-9'))
+    );
+    const { resourcesImageUrl } = await importClient();
+    await expect(resourcesImageUrl(10)).rejects.toThrow(
+      'tier must be an integer 1-9'
+    );
+  });
+});
+
 describe('team/roster URLs', () => {
   it('builds encoded dynamic team and roster URLs', async () => {
     const { teamCardImage, rosterCardImage } = await importClient();
