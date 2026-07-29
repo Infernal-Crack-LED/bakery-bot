@@ -39,3 +39,6 @@ feature-request.md
 
 # browser-saved Prydwen tier-list page consumed by `npm run refresh:prydwen`
 prydwen-tier-list.html
+
+# code-review packets + result JSONs (audit trail, kept local)
+scratchpad/
