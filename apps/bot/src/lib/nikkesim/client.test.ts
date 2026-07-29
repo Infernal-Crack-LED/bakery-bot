@@ -37,7 +37,21 @@ const MANIFEST = {
     },
     'table/ol': { ...IMG, file: 'table/ol.bbb22222.png' },
     'table/charge-speed': { ...IMG, file: 'table/charge-speed.ccc33333.png' },
+    'unit/crown.discord': {
+      ...IMG,
+      file: 'unit/crown.discord.1a2b3c4d.webp',
+      width: 2400,
+      height: 1200,
+    },
+    'unit/crown.twitter': {
+      ...IMG,
+      file: 'unit/crown.twitter.5e6f7a8b.webp',
+      width: 1200,
+      height: 1600,
+    },
   },
+  // Deliberately cardless: unsupported Burst III/Λ units, disjoint from images.
+  notSimSupported: ['brid', 'crow', 'emilia'],
 };
 
 const okManifest = () =>
@@ -340,6 +354,77 @@ describe('verifyImageUrl', () => {
     fetchMock.mockResolvedValue(new Response('', { status: 500 }));
     const { verifyImageUrl } = await importClient();
     await expect(verifyImageUrl(`${BASE}/x.png`)).rejects.toThrow('500');
+  });
+});
+
+describe('unitCardUrl', () => {
+  it('resolves a hosted card URL per variant', async () => {
+    const { unitCardUrl } = await importClient();
+    expect(await unitCardUrl('crown')).toBe(
+      `${BASE}/api/v1/img/unit/crown.discord.1a2b3c4d.webp`
+    );
+    expect(await unitCardUrl('crown', 'twitter')).toBe(
+      `${BASE}/api/v1/img/unit/crown.twitter.5e6f7a8b.webp`
+    );
+    // Manifest URLs are trusted — no verification probe.
+    expect(probedUrls()).toHaveLength(0);
+  });
+
+  it('defaults to the landscape card — the classic embed image is ~550px wide', async () => {
+    const { unitCardUrl } = await importClient();
+    expect(await unitCardUrl('crown')).toContain('.discord.');
+  });
+
+  // The load-bearing case: the pre-rendered set is FROZEN at nikke-sim deploy
+  // time, so a NIKKE synced afterwards genuinely has no card. Returning null is
+  // what lets /nikke keep its hand-built embed instead of embedding a 404.
+  it('returns null for a unit with no pre-rendered card', async () => {
+    const { unitCardUrl } = await importClient();
+    expect(await unitCardUrl('a-unit-synced-after-the-last-deploy')).toBeNull();
+  });
+
+  it('returns null (never throws) when the manifest is unavailable', async () => {
+    fetchMock.mockRejectedValue(new Error('network down'));
+    const { unitCardUrl } = await importClient();
+    expect(await unitCardUrl('crown')).toBeNull();
+  });
+});
+
+describe('isNotSimSupported', () => {
+  it('is true for a slug the manifest lists as deliberately cardless', async () => {
+    const { isNotSimSupported, unitCardUrl } = await importClient();
+    expect(await isNotSimSupported('crow')).toBe(true);
+    // …and that unit genuinely has no card — the two halves of the contract.
+    expect(await unitCardUrl('crow')).toBeNull();
+  });
+
+  // The transient case: no card, but not listed. Saying "unsupported" here
+  // would tell a user a brand-new NIKKE is unsupported when it is merely new.
+  it('is false for an unlisted unit that simply has no card yet', async () => {
+    const { isNotSimSupported } = await importClient();
+    expect(await isNotSimSupported('a-unit-synced-after-the-last-deploy')).toBe(
+      false
+    );
+  });
+
+  // Failing closed would label EVERY unit unsupported for the duration of an
+  // outage — the exact mislabelling the field exists to prevent.
+  it('is false (never throws) when the manifest fetch fails', async () => {
+    fetchMock.mockRejectedValue(new Error('network down'));
+    const { isNotSimSupported } = await importClient();
+    expect(await isNotSimSupported('crow')).toBe(false);
+  });
+
+  it('is false when the deploy predates the field entirely', async () => {
+    const { notSimSupported: _omitted, ...older } = MANIFEST;
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify(older), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    const { isNotSimSupported } = await importClient();
+    expect(await isNotSimSupported('crow')).toBe(false);
   });
 });
 
