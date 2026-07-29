@@ -97,6 +97,22 @@ export function formatBurstGen(value: string): string {
 }
 
 /**
+ * Filename for the attached unit card. Discord shows it under the image, so it
+ * carries the character name (sanitised to a safe slug); the extension must
+ * stay `.png` or Discord renders the upload as a download link, not an image.
+ */
+export function unitCardFileName(
+  c: Pick<NikkeCharacter, 'id' | 'name'>
+): string {
+  const slug =
+    c.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || c.id;
+  return `${slug}.png`;
+}
+
+/**
  * Build the character embed. `thumbnail` defaults to the stored portrait URL
  * (hot-linked); the command overrides it with an `attachment://…` url when it
  * has cropped the portrait into an attached square.
@@ -277,29 +293,44 @@ export const command: Command = {
     // Prefer nikkesim.app's pre-rendered unit card: one hosted, content-hashed
     // image carrying the portrait, the rank tiles, the neighbourhood bars and
     // the build notes — strictly more than this embed can show, and the bot
-    // renders nothing to produce it.
+    // renders nothing to produce it. When one exists the card IS the reply:
+    // wrapping it in the embed only repeats, in worse form, what the card
+    // already says.
     //
     // It is NOT always available: the card set is frozen at nikke-sim deploy
     // time, so a newly-synced NIKKE (or a manifest outage) has none, and some
     // units have none on purpose. Those cases keep the hand-built embed below,
     // which is why both paths still exist.
     const cardUrl = await unitCardUrl(character.id, 'discord');
+    if (cardUrl) {
+      // Attached rather than posted as a bare link: a link would show its own
+      // URL text above the preview, and `content` can't be empty alongside it.
+      // discord.js fetches the URL itself and uploads the bytes — which is the
+      // one way this path can fail where hot-linking couldn't, so a CDN blip
+      // falls through to the embed below instead of erroring the command.
+      try {
+        await interaction.editReply({
+          files: [
+            new AttachmentBuilder(cardUrl, {
+              name: unitCardFileName(character),
+            }),
+          ],
+        });
+        return;
+      } catch {
+        // Card unreachable — fall through to the hand-built embed.
+      }
+    }
 
     // Crop the stored portrait into a 1:1 face box and attach it; on any failure
     // fall back to the plain embed (hot-linked portrait, or none).
-    // Skipped entirely when the card is available — the card already contains
-    // the portrait, so cropping one would be wasted network I/O.
-    const cropped =
-      !cardUrl && character.imageUrl
-        ? await fetchPortraitThumbnail(character.imageUrl)
-        : null;
+    const cropped = character.imageUrl
+      ? await fetchPortraitThumbnail(character.imageUrl)
+      : null;
     const embed = buildEmbed(
       character,
       cropped ? `attachment://${PORTRAIT_ATTACHMENT_NAME}` : undefined
     );
-    if (cardUrl) {
-      embed.setImage(cardUrl);
-    }
 
     // Sim rank from the precomputed DPS chart (fail-soft: omit on any error).
     let ranked = false;
@@ -322,10 +353,10 @@ export const command: Command = {
     // An unsupported Burst III/Λ has no card AND no DPS-chart entry, so without
     // this the user just gets an embed with no sim information and nothing
     // saying why — this field takes the place of the Sim Rank it explains.
-    // Gated on `!cardUrl` and on the manifest's own list: a unit that is merely
-    // new (or a manifest outage) must NOT be labelled here. `!ranked` guards the
-    // only way both could show at once — the chart and the manifest disagreeing.
-    if (!cardUrl && !ranked && (await isNotSimSupported(character.id))) {
+    // Gated on the manifest's own list: a unit that is merely new (or a manifest
+    // outage) must NOT be labelled here. `!ranked` guards the only way both
+    // could show at once — the chart and the manifest disagreeing.
+    if (!ranked && (await isNotSimSupported(character.id))) {
       embed.addFields({
         name: '📊 Sim Rank',
         value:
