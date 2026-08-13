@@ -2,6 +2,7 @@ import { Events } from 'discord.js';
 import type { Event } from '../types.js';
 import { getDpsChart } from '../lib/nikkesim/dpschart.js';
 import { getManifest } from '../lib/nikkesim/client.js';
+import { getNikkeNames } from '../lib/nikke/nameCache.js';
 
 export const event: Event<Events.ClientReady> = {
   name: Events.ClientReady,
@@ -29,6 +30,17 @@ export const event: Event<Events.ClientReady> = {
       .catch((e) =>
         console.warn(
           '[ready] manifest preload failed (will retry on first use):',
+          e
+        )
+      );
+
+    // Preload the NIKKE name/alias cache so the first autocomplete keystroke
+    // on /nikke, /charge-speed, or /max-ammo doesn't pay a Postgres round trip.
+    getNikkeNames()
+      .then(() => console.log('[ready] NIKKE name cache preloaded'))
+      .catch((e) =>
+        console.warn(
+          '[ready] NIKKE name cache preload failed (will retry on first use):',
           e
         )
       );
