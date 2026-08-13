@@ -105,11 +105,10 @@ export const command: Command = {
       }
       await interaction.deferReply();
       const card = await teamCard(match.build, match.row.code);
-      const embed = brandEmbed(new EmbedBuilder())
-        .setTitle(match.row.name)
-        .setDescription(
-          `**[Open in Team Sim](${await teamPageUrl(match.row.code, interaction.user.id)})**`
-        );
+      const embed = brandEmbed(new EmbedBuilder(), undefined, {
+        name: 'Open on nikkesim.app',
+        url: await teamPageUrl(match.row.code, interaction.user.id),
+      });
       await interaction.editReply(await teamReply(embed, card));
       return;
     }
@@ -157,11 +156,10 @@ export const command: Command = {
     await selected.update({ content: 'Loading\u2026', components: [] });
 
     const card = await teamCard(picked.build, picked.row.code);
-    const embed = brandEmbed(new EmbedBuilder())
-      .setTitle(picked.row.name)
-      .setDescription(
-        `**[Open in Team Sim](${await teamPageUrl(picked.row.code, interaction.user.id)})**`
-      );
+    const embed = brandEmbed(new EmbedBuilder(), undefined, {
+      name: 'Open on nikkesim.app',
+      url: await teamPageUrl(picked.row.code, interaction.user.id),
+    });
     // Post the result publicly so the whole channel can see it.
     await interaction.followUp(await teamReply(embed, card));
     // Clean up the ephemeral "Loading…" message.

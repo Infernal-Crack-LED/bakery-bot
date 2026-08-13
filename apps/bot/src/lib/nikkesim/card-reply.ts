@@ -37,15 +37,21 @@ export const BOT_COLOR = 0xf472b6;
  * blue/pink before this existed, and the ruling that moved the image out of the
  * embed said nothing about recolouring five of them. Unifying them is a
  * separate, owner-visible change.
+ *
+ * `link` overrides the author's name/url for commands whose only body text
+ * WAS that link ("Full calculator on nikkesim.app", "Open in Roster Sim") —
+ * folding it into the icon line rather than repeating the icon (thumbnail)
+ * and the link (description) as two separate pieces.
  */
 export function brandEmbed(
   embed: EmbedBuilder,
-  color: number = NIKKESIM_COLOR
+  color: number = NIKKESIM_COLOR,
+  link?: { name: string; url: string }
 ): EmbedBuilder {
   return embed.setColor(color).setAuthor({
-    name: 'nikkesim.app',
+    name: link?.name ?? 'nikkesim.app',
     iconURL: ICON_URL,
-    url: 'https://www.nikkesim.app',
+    url: link?.url ?? 'https://www.nikkesim.app',
   });
 }
 

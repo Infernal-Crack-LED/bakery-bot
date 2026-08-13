@@ -127,8 +127,8 @@ describe('/roster', () => {
     // the picture is NOT the embed's — an embed caps it at the embed column
     expect(embed.image).toBeUndefined();
     expect(embed.thumbnail).toBeUndefined();
-    expect(embed.author.name).toBe('nikkesim.app');
-    expect(embed.title).toBe('Solo');
+    expect(embed.author.name).toBe('Open on nikkesim.app');
+    expect(embed.title).toBeUndefined();
     expect(fetchImageAttachment).toHaveBeenCalledWith(
       CARD_URL,
       'roster-card.png'
@@ -161,17 +161,17 @@ describe('/roster', () => {
   it('links to the Roster Sim tab, using the share id when there is one', async () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
-    const bare = editReply.mock.calls[0]![0].embeds[0].toJSON().description;
-    expect(bare).toContain('Open in Roster Sim');
-    expect(bare).toContain(`${SITE}/rostersim)`);
-    expect(bare).not.toContain('?b=');
+    const author = editReply.mock.calls[0]![0].embeds[0].toJSON().author;
+    expect(author.name).toBe('Open on nikkesim.app');
+    expect(author.url).toBe(`${SITE}/rostersim`);
+    expect(author.url).not.toContain('?b=');
 
     vi.mocked(findSharedResultsId).mockResolvedValue('cfg-1');
     const second = fakeInteraction();
     await command.execute(second.interaction as never);
     expect(
-      second.editReply.mock.calls[0]![0].embeds[0].toJSON().description
-    ).toContain(`${SITE}/rostersim?id=cfg-1`);
+      second.editReply.mock.calls[0]![0].embeds[0].toJSON().author.url
+    ).toBe(`${SITE}/rostersim?id=cfg-1`);
   });
 
   // `sim-share` rows are evictable, so a matched id can 404 by render time.
@@ -203,7 +203,7 @@ describe('/roster', () => {
     await command.execute(interaction as never);
     const embed = editReply.mock.calls[0]![0].embeds[0].toJSON();
     expect(embed.image).toBeUndefined();
-    expect(embed.description).toContain('Open in Roster Sim');
+    expect(embed.author.name).toBe('Open on nikkesim.app');
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });

@@ -53,8 +53,8 @@ describe('/ai', () => {
     // the picture is NOT the embed's — an embed caps it at the embed column
     expect(embed.image).toBeUndefined();
     expect(embed.thumbnail).toBeUndefined();
-    expect(embed.author.name).toBe('nikkesim.app');
-    expect(JSON.stringify(embed)).toContain('nikkesim.app/resources');
+    expect(embed.author.name).toBe('Full calculator on nikkesim.app');
+    expect(embed.author.url).toBe('https://www.nikkesim.app/resources');
     expect(fetchImageAttachment).toHaveBeenCalledWith(
       CARD_URL,
       'resources-card.png'

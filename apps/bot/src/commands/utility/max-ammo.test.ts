@@ -71,7 +71,8 @@ describe('/max-ammo', () => {
     // the picture is NOT the embed's — an embed caps it at the embed column
     expect(embed.image).toBeUndefined();
     expect(embed.thumbnail).toBeUndefined();
-    expect(embed.author.name).toBe('nikkesim.app');
+    expect(embed.author.name).toBe('Full calculator on nikkesim.app');
+    expect(embed.author.url).toBe('https://www.nikkesim.app/charge');
     // card first, then the icon the author line references
     expect(payload.files).toEqual([CARD.file, expect.anything()]);
   });

@@ -60,9 +60,11 @@ export const command: Command = {
         );
         return;
       }
-      const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR).setDescription(
-        'Use `/charge-speed character:<name>` for unit-specific breakpoints.\n' +
-          '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
+      const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR, {
+        name: 'Full calculator on nikkesim.app',
+        url: 'https://www.nikkesim.app/charge',
+      }).setDescription(
+        'Use `/charge-speed character:<name>` for unit-specific breakpoints.'
       );
       await interaction.editReply(
         await cardReply(embed, card, 'charge-speed-table.png')
@@ -110,11 +112,10 @@ export const command: Command = {
       );
       return;
     }
-    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR)
-      .setTitle(`Charge Speed \u2014 ${character.name}`)
-      .setDescription(
-        '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
-      );
+    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR, {
+      name: 'Full calculator on nikkesim.app',
+      url: 'https://www.nikkesim.app/charge',
+    });
     await interaction.editReply(
       await cardReply(embed, card, 'charge-speed-table.png')
     );

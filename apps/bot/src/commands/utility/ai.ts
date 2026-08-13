@@ -57,9 +57,10 @@ export const command: Command = {
       return;
     }
 
-    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR).setDescription(
-      '**[Full calculator on nikkesim.app](https://www.nikkesim.app/resources)**'
-    );
+    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR, {
+      name: 'Full calculator on nikkesim.app',
+      url: 'https://www.nikkesim.app/resources',
+    });
 
     await interaction.editReply(
       await cardReply(embed, card, 'resources-card.png')

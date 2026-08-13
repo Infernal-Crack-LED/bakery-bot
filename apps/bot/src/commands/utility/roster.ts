@@ -139,9 +139,10 @@ export const command: Command = {
         match.row.code,
         interaction.user.id
       );
-      const embed = brandEmbed(new EmbedBuilder())
-        .setTitle(match.row.name)
-        .setDescription(`**[Open in Roster Sim](${pageUrl})**`);
+      const embed = brandEmbed(new EmbedBuilder(), undefined, {
+        name: 'Open on nikkesim.app',
+        url: pageUrl,
+      });
       await interaction.editReply(await rosterReply(embed, card));
       return;
     }
@@ -193,9 +194,10 @@ export const command: Command = {
       picked.row.code,
       interaction.user.id
     );
-    const embed = brandEmbed(new EmbedBuilder())
-      .setTitle(picked.row.name)
-      .setDescription(`**[Open in Roster Sim](${pageUrl})**`);
+    const embed = brandEmbed(new EmbedBuilder(), undefined, {
+      name: 'Open on nikkesim.app',
+      url: pageUrl,
+    });
     // Post the result publicly so the whole channel can see it.
     await interaction.followUp(await rosterReply(embed, card));
     // Clean up the ephemeral "Loading…" message.
