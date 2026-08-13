@@ -3,7 +3,7 @@ import { asc, eq, ilike } from 'drizzle-orm';
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
 import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
-import { tableImageUrl } from '../../lib/nikkesim/client.js';
+import { tableCardImage, type CardImage } from '../../lib/nikkesim/client.js';
 
 async function findCharacter(query: string) {
   const direct =
@@ -76,9 +76,9 @@ export const command: Command = {
 
     if (!query) {
       // Generic (1.0s) table — the pre-rendered manifest image.
-      let imageUrl: string;
+      let card: CardImage;
       try {
-        imageUrl = await tableImageUrl('charge-speed');
+        card = await tableCardImage('charge-speed');
       } catch {
         await interaction.reply(
           'Could not fetch the charge-speed table from nikkesim.app \u2014 try again later.'
@@ -88,12 +88,15 @@ export const command: Command = {
       const embed = new EmbedBuilder()
         .setColor(0xf472b6)
         .setThumbnail(ICON_URL)
-        .setImage(imageUrl)
+        .setImage(card.url)
         .setDescription(
           'Use `/charge-speed character:<name>` for unit-specific breakpoints.\n' +
             '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
         );
-      await interaction.reply({ embeds: [embed], files: [iconAttachment()] });
+      await interaction.reply({
+        embeds: [embed],
+        files: [iconAttachment(), ...(card.file ? [card.file] : [])],
+      });
       return;
     }
 
@@ -127,9 +130,9 @@ export const command: Command = {
     // server-side from the same data. The two sides still drift (a NIKKE
     // released since nikke-sim's last deploy is unknown there), so surface the
     // API's reason instead of posting an embed with a silently blank image.
-    let imageUrl: string;
+    let card: CardImage;
     try {
-      imageUrl = await tableImageUrl('charge-speed', { unit: character.id });
+      card = await tableCardImage('charge-speed', { unit: character.id });
     } catch (err) {
       await interaction.editReply(
         `Couldn't render the Charge Speed table for **${character.name}** — ${
@@ -142,13 +145,13 @@ export const command: Command = {
       .setColor(0xf472b6)
       .setThumbnail(ICON_URL)
       .setTitle(`Charge Speed \u2014 ${character.name}`)
-      .setImage(imageUrl)
+      .setImage(card.url)
       .setDescription(
         '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
       );
     await interaction.editReply({
       embeds: [embed],
-      files: [iconAttachment()],
+      files: [iconAttachment(), ...(card.file ? [card.file] : [])],
     });
   },
 };

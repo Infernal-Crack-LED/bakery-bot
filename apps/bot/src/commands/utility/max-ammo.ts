@@ -3,7 +3,7 @@ import { asc, eq, ilike } from 'drizzle-orm';
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
 import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
-import { tableImageUrl } from '../../lib/nikkesim/client.js';
+import { tableCardImage, type CardImage } from '../../lib/nikkesim/client.js';
 
 async function findCharacter(query: string) {
   const direct =
@@ -98,9 +98,9 @@ export const command: Command = {
     // sides still drift: a NIKKE released since nikke-sim's last deploy is in
     // our DB but unknown there, so surface the API's reason instead of posting
     // an embed with a silently blank image.
-    let imageUrl: string;
+    let card: CardImage;
     try {
-      imageUrl = await tableImageUrl('max-ammo', { unit: character.id });
+      card = await tableCardImage('max-ammo', { unit: character.id });
     } catch (err) {
       await interaction.editReply(
         `Couldn't render the Max Ammo table for **${character.name}** — ${
@@ -113,13 +113,13 @@ export const command: Command = {
       .setColor(0xf472b6)
       .setThumbnail(ICON_URL)
       .setTitle(`Max Ammo \u2014 ${character.name}`)
-      .setImage(imageUrl)
+      .setImage(card.url)
       .setDescription(
         '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
       );
     await interaction.editReply({
       embeds: [embed],
-      files: [iconAttachment()],
+      files: [iconAttachment(), ...(card.file ? [card.file] : [])],
     });
   },
 };

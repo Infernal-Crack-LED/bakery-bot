@@ -5,13 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * module is re-imported per test (vi.resetModules) so the in-module manifest
  * cache starts cold.
  *
- * The stub routes two kinds of request, mirroring the real API: manifest.json
- * returns JSON, and every dynamic `*.png?...` URL returns a bodiless 302 (what
- * the API answers when it can render). Tests that want a rejection override
- * the route with a 4xx + plain-text reason.
+ * The stub routes three kinds of request, mirroring the real API:
+ * manifest.json returns JSON, a dynamic `*.png?...` URL returns a bodiless 302
+ * to its content-addressed cache entry (what the API answers when it can
+ * render), and that cache entry returns PNG bytes. Tests that want a rejection
+ * override the route with a 4xx + plain-text reason.
  */
 
-const BASE = 'https://www.nikkesim.app';
+const BASE = 'https://nikkesim.app';
 
 const IMG = {
   hash: 'deadbeef',
@@ -37,6 +38,9 @@ const MANIFEST = {
     },
     'table/ol': { ...IMG, file: 'table/ol.bbb22222.png' },
     'table/charge-speed': { ...IMG, file: 'table/charge-speed.ccc33333.png' },
+    // Tier 5 is deliberately absent, to exercise the dynamic fallback.
+    'resources/t3': { ...IMG, file: 'resources/t3.a1300000.png' },
+    'resources/t9': { ...IMG, file: 'resources/t9.a1900000.png' },
     'unit/crown.discord': {
       ...IMG,
       file: 'unit/crown.discord.1a2b3c4d.webp',
@@ -60,12 +64,20 @@ const okManifest = () =>
     headers: { 'content-type': 'application/json' },
   });
 
+/** The content-addressed entry every renderable dynamic request resolves to. */
+const CACHE_PATH = '/api/v1/img/cache/table.0123456789abcdef.png';
+const CACHE_URL = `${BASE}${CACHE_PATH}`;
+
 /** What the API answers for a renderable dynamic request: a bodiless 302 to
  * its content-addressed cache entry. */
 const renderable = () =>
-  new Response(null, {
-    status: 302,
-    headers: { location: '/api/v1/img/cache/table.0123456789abcdef.png' },
+  new Response(null, { status: 302, headers: { location: CACHE_PATH } });
+
+/** …and what that entry then serves. */
+const cachedPng = () =>
+  new Response(new Uint8Array([137, 80, 78, 71]), {
+    status: 200,
+    headers: { 'content-type': 'image/png' },
   });
 
 /** What the API answers when it can't render: 4xx + a short plain-text why. */
@@ -80,7 +92,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 const importClient = () => import('./client.js');
 
 /** Requests the client made that were NOT the manifest — i.e. verification
- * probes of dynamic URLs. */
+ * probes of dynamic URLs, plus any byte fetch of the resolved cache entry. */
 const probedUrls = (): string[] =>
   fetchMock.mock.calls
     .map((c) => String(c[0]))
@@ -88,11 +100,15 @@ const probedUrls = (): string[] =>
 
 beforeEach(() => {
   vi.resetModules();
-  fetchMock = vi.fn((url: string) =>
-    Promise.resolve(
-      String(url).endsWith('manifest.json') ? okManifest() : renderable()
-    )
-  );
+  fetchMock = vi.fn((url: string) => {
+    const u = String(url);
+    if (u.endsWith('manifest.json')) {
+      return Promise.resolve(okManifest());
+    }
+    return Promise.resolve(
+      u.includes('/img/cache/') ? cachedPng() : renderable()
+    );
+  });
   vi.stubGlobal('fetch', fetchMock);
 });
 
@@ -125,29 +141,34 @@ describe('dpsImageUrl', () => {
     );
   });
 
+  // A dynamic request resolves THROUGH the mutable route to the immutable
+  // cache entry it renders into — that resolved URL is what callers get.
   it('uses the dynamic route for a unit window, and verifies it', async () => {
     const { dpsImageUrl } = await importClient();
-    const url = await dpsImageUrl({ unit: 'cinderella' });
-    expect(url).toBe(
-      `${BASE}/api/v1/img/dps.png?cell=solo.eleweak.c100.8of12&unit=cinderella`
-    );
-    expect(probedUrls()).toEqual([url]);
+    expect(await dpsImageUrl({ unit: 'cinderella' })).toBe(CACHE_URL);
+    expect(probedUrls()).toEqual([
+      `${BASE}/api/v1/img/dps.png?cell=solo.eleweak.c100.8of12&unit=cinderella`,
+    ]);
   });
 
   it('uses the dynamic route for a units comparison', async () => {
     const { dpsImageUrl } = await importClient();
-    const url = await dpsImageUrl({ units: ['cinderella', 'scarlet'] });
-    expect(url).toBe(
-      `${BASE}/api/v1/img/dps.png?cell=solo.eleweak.c100.8of12&units=cinderella%2Cscarlet`
+    expect(await dpsImageUrl({ units: ['cinderella', 'scarlet'] })).toBe(
+      CACHE_URL
     );
+    expect(probedUrls()).toEqual([
+      `${BASE}/api/v1/img/dps.png?cell=solo.eleweak.c100.8of12&units=cinderella%2Cscarlet`,
+    ]);
   });
 
   it('falls back to the dynamic route when the manifest lacks the key', async () => {
     const { dpsImageUrl } = await importClient();
-    const url = await dpsImageUrl({ cell: 'solo.eleweak.c100.13of13' });
-    expect(url).toBe(
-      `${BASE}/api/v1/img/dps.png?cell=solo.eleweak.c100.13of13`
+    expect(await dpsImageUrl({ cell: 'solo.eleweak.c100.13of13' })).toBe(
+      CACHE_URL
     );
+    expect(probedUrls()).toEqual([
+      `${BASE}/api/v1/img/dps.png?cell=solo.eleweak.c100.13of13`,
+    ]);
   });
 
   it('falls back to the dynamic route when the manifest fetch fails', async () => {
@@ -157,9 +178,10 @@ describe('dpsImageUrl', () => {
         : Promise.resolve(renderable())
     );
     const { dpsImageUrl } = await importClient();
-    expect(await dpsImageUrl()).toBe(
-      `${BASE}/api/v1/img/dps.png?cell=solo.eleweak.c100.8of12`
-    );
+    expect(await dpsImageUrl()).toBe(CACHE_URL);
+    expect(probedUrls()).toEqual([
+      `${BASE}/api/v1/img/dps.png?cell=solo.eleweak.c100.8of12`,
+    ]);
   });
 
   it('rejects when the dynamic fallback cannot be rendered', async () => {
@@ -206,12 +228,13 @@ describe('tableImageUrl', () => {
   it('uses the dynamic route for per-unit tables, and verifies them', async () => {
     const { tableImageUrl } = await importClient();
     expect(await tableImageUrl('charge-speed', { unit: 'alice' })).toBe(
-      `${BASE}/api/v1/img/table/charge-speed.png?unit=alice`
+      CACHE_URL
     );
-    expect(await tableImageUrl('max-ammo', { unit: 'alice' })).toBe(
-      `${BASE}/api/v1/img/table/max-ammo.png?unit=alice`
-    );
-    expect(probedUrls()).toHaveLength(2);
+    expect(await tableImageUrl('max-ammo', { unit: 'alice' })).toBe(CACHE_URL);
+    expect(probedUrls()).toEqual([
+      `${BASE}/api/v1/img/table/charge-speed.png?unit=alice`,
+      `${BASE}/api/v1/img/table/max-ammo.png?unit=alice`,
+    ]);
   });
 
   it('rejects with the API reason for a unit nikke-sim does not know', async () => {
@@ -249,23 +272,38 @@ describe('tableImageUrl', () => {
 });
 
 describe('resourcesImageUrl', () => {
-  it('uses the dynamic route with no tier param, and verifies it', async () => {
-    const { resourcesImageUrl } = await importClient();
-    const url = await resourcesImageUrl();
-    expect(url).toBe(`${BASE}/api/v1/img/resources.png`);
-    expect(probedUrls()).toEqual([url]);
-  });
-
-  it('appends the tier param when given', async () => {
+  it('resolves a tier through the manifest', async () => {
     const { resourcesImageUrl } = await importClient();
     expect(await resourcesImageUrl(3)).toBe(
-      `${BASE}/api/v1/img/resources.png?tier=3`
+      `${BASE}/api/v1/img/resources/t3.a1300000.png`
     );
+    // Manifest URLs are trusted — no verification probe.
+    expect(probedUrls()).toHaveLength(0);
+  });
+
+  // An omitted tier is the API's DEFAULT_RESOURCES_TIER; the manifest key has
+  // to name it explicitly, since a key can't be "whatever the server picks".
+  it('maps an omitted tier onto the default tier card', async () => {
+    const { resourcesImageUrl } = await importClient();
+    expect(await resourcesImageUrl()).toBe(
+      `${BASE}/api/v1/img/resources/t9.a1900000.png`
+    );
+    expect(probedUrls()).toHaveLength(0);
+  });
+
+  it('falls back to the dynamic route when the manifest lacks the tier', async () => {
+    const { resourcesImageUrl } = await importClient();
+    expect(await resourcesImageUrl(5)).toBe(CACHE_URL);
+    expect(probedUrls()).toEqual([`${BASE}/api/v1/img/resources.png?tier=5`]);
   });
 
   it('rejects with the API reason for an out-of-range tier', async () => {
-    fetchMock.mockImplementation(() =>
-      Promise.resolve(rejected('tier must be an integer 1-9'))
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        String(url).endsWith('manifest.json')
+          ? okManifest()
+          : rejected('tier must be an integer 1-9')
+      )
     );
     const { resourcesImageUrl } = await importClient();
     await expect(resourcesImageUrl(10)).rejects.toThrow(
@@ -274,18 +312,26 @@ describe('resourcesImageUrl', () => {
   });
 });
 
-describe('team/roster URLs', () => {
-  it('builds encoded dynamic team and roster URLs', async () => {
+// Per-user cards. Nobody else has posted this exact build code, so Discord's
+// image proxy has never seen the URL and would fetch it only AFTER the message
+// landed — the card would pop in seconds late. They travel as bytes instead.
+describe('team/roster cards', () => {
+  it('uploads the card rather than linking it', async () => {
     const { teamCardImage, rosterCardImage } = await importClient();
-    expect(await teamCardImage('abc+def=')).toEqual({
-      url: `${BASE}/api/v1/img/team.png?b=abc%2Bdef%3D`,
-    });
-    expect(await rosterCardImage('xyz')).toEqual({
-      url: `${BASE}/api/v1/img/roster.png?b=xyz`,
-    });
-    // Both are dynamic, so both are verified — and neither touches the manifest.
-    expect(probedUrls()).toHaveLength(2);
-    expect(fetchMock.mock.calls.map((c) => String(c[0]))).toEqual(probedUrls());
+    const team = await teamCardImage('abc+def=');
+    expect(team.url).toBe('attachment://team-card.png');
+    expect(team.file?.name).toBe('team-card.png');
+    expect((await rosterCardImage('xyz')).url).toBe(
+      'attachment://roster-card.png'
+    );
+    // Each card = the encoded probe, then the resolved cache entry it renders
+    // into. Neither touches the manifest.
+    expect(probedUrls()).toEqual([
+      `${BASE}/api/v1/img/team.png?b=abc%2Bdef%3D`,
+      CACHE_URL,
+      `${BASE}/api/v1/img/roster.png?b=xyz`,
+      CACHE_URL,
+    ]);
   });
 
   it('rejects a build code nikke-sim cannot decode', async () => {
@@ -296,90 +342,111 @@ describe('team/roster URLs', () => {
     );
   });
 
-  // Discord rejects an embed image URL over 2048 chars outright (50035), and a
-  // populated roster code is ~3.3 KB — so past the limit the card has to travel
-  // as bytes instead of as a link.
-  describe('when the build code overflows the embed URL limit', () => {
-    const LONG_CODE = 'x'.repeat(2100);
-
-    it('uploads the bytes instead of linking the URL', async () => {
-      fetchMock.mockResolvedValue(
-        new Response(new Uint8Array([1, 2, 3]), {
-          status: 200,
-          headers: { 'content-type': 'image/png' },
-        })
-      );
-      const { rosterCardImage } = await importClient();
-      const card = await rosterCardImage(LONG_CODE);
-      expect(card.url).toBe('attachment://roster-card.png');
-      expect(card.file?.name).toBe('roster-card.png');
-      // The GET replaces the probe rather than adding to it.
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(fetchMock.mock.calls[0]![1]).toBeUndefined();
-    });
-
-    it('names the attachment after the card kind', async () => {
-      fetchMock.mockResolvedValue(
-        new Response(new Uint8Array([1]), {
-          status: 200,
-          headers: { 'content-type': 'image/png' },
-        })
-      );
-      const { teamCardImage } = await importClient();
-      expect((await teamCardImage(LONG_CODE)).url).toBe(
-        'attachment://team-card.png'
-      );
-    });
-
-    it('still surfaces an API rejection rather than posting HTML', async () => {
-      fetchMock.mockResolvedValue(rejected('invalid build code'));
-      const { rosterCardImage } = await importClient();
-      await expect(rosterCardImage(LONG_CODE)).rejects.toThrow('400');
-    });
-
-    // Boundary, derived rather than hardcoded so it survives a base-URL change.
-    const PREFIX_LEN = `${BASE}/api/v1/img/roster.png?b=`.length;
-
-    it('keeps a URL of exactly 2048 on the link path', async () => {
-      const { rosterCardImage } = await importClient();
-      const card = await rosterCardImage('y'.repeat(2048 - PREFIX_LEN));
-      expect(card.file).toBeUndefined();
-      expect(card.url).toHaveLength(2048);
-    });
-
-    it('switches to bytes one character past the limit', async () => {
-      fetchMock.mockResolvedValue(
-        new Response(new Uint8Array([1]), {
-          status: 200,
-          headers: { 'content-type': 'image/png' },
-        })
-      );
-      const { rosterCardImage } = await importClient();
-      const card = await rosterCardImage('y'.repeat(2049 - PREFIX_LEN));
-      expect(card.file).toBeDefined();
-    });
+  // A populated roster code is ~3.3 KB, well past the 2048-char cap Discord
+  // puts on an embed image URL (50035) — the upload path has no such limit.
+  it('carries a build code far past the embed URL limit', async () => {
+    const { rosterCardImage } = await importClient();
+    const card = await rosterCardImage('x'.repeat(3300));
+    expect(card.url).toBe('attachment://roster-card.png');
+    expect(card.file).toBeDefined();
   });
 });
 
 describe('verifyImageUrl', () => {
-  it('returns the URL unchanged on a renderable 302', async () => {
+  it('resolves a renderable request to its immutable cache entry', async () => {
     const { verifyImageUrl } = await importClient();
-    const url = `${BASE}/api/v1/img/team.png?b=abc`;
-    expect(await verifyImageUrl(url)).toBe(url);
+    expect(await verifyImageUrl(`${BASE}/api/v1/img/team.png?b=abc`)).toBe(
+      CACHE_URL
+    );
   });
 
-  it('never downloads the image (redirect is not followed)', async () => {
+  it('stops at the cache entry rather than downloading the image', async () => {
     const { verifyImageUrl } = await importClient();
     await verifyImageUrl(`${BASE}/api/v1/img/team.png?b=abc`);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(expect.any(String), {
       redirect: 'manual',
     });
+  });
+
+  // The regression this exists for: `www.nikkesim.app` 301s to the apex host,
+  // and a verifier that treats ANY 3xx as success stops there — the request
+  // never reaches the app, so nothing renders and a 4xx is never seen.
+  it('follows a host redirect instead of reading it as a success', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.startsWith('https://www.')) {
+        return Promise.resolve(
+          new Response(null, {
+            status: 301,
+            headers: { location: u.replace('https://www.', 'https://') },
+          })
+        );
+      }
+      return Promise.resolve(rejected("unknown unit 'anne-miracle-fairy'"));
+    });
+    const { verifyImageUrl } = await importClient();
+    await expect(
+      verifyImageUrl('https://www.nikkesim.app/api/v1/img/table/max-ammo.png')
+    ).rejects.toThrow("unknown unit 'anne-miracle-fairy'");
+  });
+
+  it('gives up on a redirect loop', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(null, {
+        status: 301,
+        headers: { location: `${BASE}/api/v1/img/loop.png` },
+      })
+    );
+    const { verifyImageUrl } = await importClient();
+    await expect(verifyImageUrl(`${BASE}/x.png`)).rejects.toThrow(
+      'too many redirects'
+    );
   });
 
   it('falls back to the status when the API gives no reason', async () => {
     fetchMock.mockResolvedValue(new Response('', { status: 500 }));
     const { verifyImageUrl } = await importClient();
     await expect(verifyImageUrl(`${BASE}/x.png`)).rejects.toThrow('500');
+  });
+});
+
+// The seam that decides URL vs upload: pre-rendered images keep the URL (the
+// proxy is warm on them), on-demand renders are uploaded.
+describe('card images', () => {
+  it('links the pre-rendered table but uploads the per-unit one', async () => {
+    const { tableCardImage } = await importClient();
+    const generic = await tableCardImage('charge-speed');
+    expect(generic).toEqual({
+      url: `${BASE}/api/v1/img/table/charge-speed.ccc33333.png`,
+    });
+    const perUnit = await tableCardImage('charge-speed', { unit: 'alice' });
+    expect(perUnit.url).toBe('attachment://charge-speed-table.png');
+    expect(perUnit.file?.name).toBe('charge-speed-table.png');
+  });
+
+  it('links the headline DPS chart but uploads a windowed one', async () => {
+    const { dpsCardImage } = await importClient();
+    expect(await dpsCardImage()).toEqual({
+      url: `${BASE}/api/v1/img/dps/solo.eleweak.c100.8of12.all.aaa11111.png`,
+    });
+    expect((await dpsCardImage({ unit: 'cinderella' })).url).toBe(
+      'attachment://dps-chart.png'
+    );
+  });
+
+  it('surfaces the API reason instead of uploading an error page', async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        String(url).endsWith('manifest.json')
+          ? okManifest()
+          : rejected("unknown unit 'anne-miracle-fairy'")
+      )
+    );
+    const { tableCardImage } = await importClient();
+    await expect(
+      tableCardImage('max-ammo', { unit: 'anne-miracle-fairy' })
+    ).rejects.toThrow("unknown unit 'anne-miracle-fairy'");
   });
 });
 

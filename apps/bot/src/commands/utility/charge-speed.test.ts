@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// The generic table is pre-rendered, so it stays a URL Discord's proxy already
+// holds; a per-unit table is rendered on demand and travels as bytes.
 const GENERIC_URL =
-  'https://www.nikkesim.app/api/v1/img/table/charge-speed.ccc33333.png';
-const UNIT_URL =
-  'https://www.nikkesim.app/api/v1/img/table/charge-speed.png?unit=alice';
+  'https://nikkesim.app/api/v1/img/table/charge-speed.ccc33333.png';
+const GENERIC_CARD = { url: GENERIC_URL };
+const UNIT_CARD = {
+  url: 'attachment://charge-speed-table.png',
+  file: { name: 'charge-speed-table.png' },
+};
 
 const CHARACTER = {
   id: 'alice',
@@ -22,12 +27,12 @@ vi.mock('@app/db', () => ({
 }));
 
 vi.mock('../../lib/nikkesim/client.js', () => ({
-  tableImageUrl: vi.fn((_table: string, opts?: { unit?: string }) =>
-    Promise.resolve(opts?.unit ? UNIT_URL : GENERIC_URL)
+  tableCardImage: vi.fn((_table: string, opts?: { unit?: string }) =>
+    Promise.resolve(opts?.unit ? UNIT_CARD : GENERIC_CARD)
   ),
 }));
 
-import { tableImageUrl } from '../../lib/nikkesim/client.js';
+import { tableCardImage } from '../../lib/nikkesim/client.js';
 import { command } from './charge-speed.js';
 
 function fakeInteraction(character: string | null) {
@@ -48,10 +53,10 @@ function fakeInteraction(character: string | null) {
 describe('/charge-speed', () => {
   beforeEach(() => {
     findFirst.mockResolvedValue(CHARACTER);
-    vi.mocked(tableImageUrl).mockClear();
-    vi.mocked(tableImageUrl).mockImplementation(
+    vi.mocked(tableCardImage).mockClear();
+    vi.mocked(tableCardImage).mockImplementation(
       (_table: string, opts?: { unit?: string }) =>
-        Promise.resolve(opts?.unit ? UNIT_URL : GENERIC_URL)
+        Promise.resolve(opts?.unit ? UNIT_CARD : GENERIC_CARD)
     );
   });
 
@@ -66,14 +71,14 @@ describe('/charge-speed', () => {
   it('embeds the generic table when no character is given', async () => {
     const { interaction, reply } = fakeInteraction(null);
     await command.execute(interaction as never);
-    expect(tableImageUrl).toHaveBeenCalledWith('charge-speed');
+    expect(tableCardImage).toHaveBeenCalledWith('charge-speed');
     const payload = reply.mock.calls[0]![0];
     expect(payload.embeds[0].toJSON().image.url).toBe(GENERIC_URL);
     expect(payload.files).toHaveLength(1); // icon thumbnail only
   });
 
   it('errors out when the generic table cannot be resolved', async () => {
-    vi.mocked(tableImageUrl).mockRejectedValueOnce(new Error('down'));
+    vi.mocked(tableCardImage).mockRejectedValueOnce(new Error('down'));
     const { interaction, reply } = fakeInteraction(null);
     await command.execute(interaction as never);
     expect(reply.mock.calls[0]![0]).toContain('nikkesim.app');
@@ -82,16 +87,18 @@ describe('/charge-speed', () => {
   it('embeds the per-unit table, keyed by the DB id as the nikkesim slug', async () => {
     const { interaction, editReply } = fakeInteraction('alice');
     await command.execute(interaction as never);
-    expect(tableImageUrl).toHaveBeenCalledWith('charge-speed', {
+    expect(tableCardImage).toHaveBeenCalledWith('charge-speed', {
       unit: 'alice',
     });
     const payload = editReply.mock.calls[0]![0];
-    expect(payload.embeds[0].toJSON().image.url).toBe(UNIT_URL);
+    expect(payload.embeds[0].toJSON().image.url).toBe(UNIT_CARD.url);
+    // Icon thumbnail + the card itself, so the reply lands complete.
+    expect(payload.files).toEqual([expect.anything(), UNIT_CARD.file]);
   });
 
   // See max-ammo.test.ts — the bot's unit set runs ahead of nikke-sim's.
   it('explains itself when nikke-sim rejects the unit', async () => {
-    vi.mocked(tableImageUrl).mockRejectedValueOnce(
+    vi.mocked(tableCardImage).mockRejectedValueOnce(
       new Error('Rapi (AR) is not a charge weapon')
     );
     const { interaction, editReply } = fakeInteraction('alice');
@@ -110,7 +117,7 @@ describe('/charge-speed', () => {
     });
     const { interaction, editReply } = fakeInteraction('alice');
     await command.execute(interaction as never);
-    expect(tableImageUrl).not.toHaveBeenCalled();
+    expect(tableCardImage).not.toHaveBeenCalled();
     expect(editReply.mock.calls[0]![0].content).toContain(
       'not a charge weapon'
     );

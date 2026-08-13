@@ -3,7 +3,8 @@ import type { Command } from '../../types.js';
 import {
   DEFAULT_DPS_CELL,
   NEUTRAL_DPS_CELL,
-  dpsImageUrl,
+  dpsCardImage,
+  type CardImage,
   type DpsElement,
 } from '../../lib/nikkesim/client.js';
 import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
@@ -46,9 +47,9 @@ export const command: Command = {
         : undefined;
 
     // Top-10 windowed chart rendered by nikkesim.app (manifest-hashed URL).
-    let imageUrl: string;
+    let card: CardImage;
     try {
-      imageUrl = await dpsImageUrl({ cell, element });
+      card = await dpsCardImage({ cell, element });
     } catch {
       await interaction.editReply(
         'Could not fetch DPS data from nikkesim.app — try again later.'
@@ -59,14 +60,14 @@ export const command: Command = {
     const embed = new EmbedBuilder()
       .setColor(0x5b9dff)
       .setThumbnail(ICON_URL)
-      .setImage(imageUrl)
+      .setImage(card.url)
       .setDescription(
         `**[Full chart on nikkesim.app](https://www.nikkesim.app/dpschart)**`
       );
 
     await interaction.editReply({
       embeds: [embed],
-      files: [iconAttachment()],
+      files: [iconAttachment(), ...(card.file ? [card.file] : [])],
     });
   },
 };
