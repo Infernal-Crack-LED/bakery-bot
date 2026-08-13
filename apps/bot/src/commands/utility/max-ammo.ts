@@ -2,7 +2,11 @@ import { db, nikkeCharacters } from '@app/db';
 import { asc, eq, ilike } from 'drizzle-orm';
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
-import { brandEmbed, cardReply } from '../../lib/nikkesim/card-reply.js';
+import {
+  brandEmbed,
+  cardReply,
+  BOT_COLOR,
+} from '../../lib/nikkesim/card-reply.js';
 import { tableCardImage, type CardImage } from '../../lib/nikkesim/client.js';
 
 async function findCharacter(query: string) {
@@ -109,7 +113,7 @@ export const command: Command = {
       );
       return;
     }
-    const embed = brandEmbed(new EmbedBuilder())
+    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR)
       .setTitle(`Max Ammo \u2014 ${character.name}`)
       .setDescription(
         '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'

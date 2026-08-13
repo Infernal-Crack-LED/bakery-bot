@@ -1,6 +1,10 @@
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
-import { brandEmbed, cardReply } from '../../lib/nikkesim/card-reply.js';
+import {
+  brandEmbed,
+  cardReply,
+  BOT_COLOR,
+} from '../../lib/nikkesim/card-reply.js';
 import { dollCardImage, type CardImage } from '../../lib/nikkesim/client.js';
 
 /**
@@ -44,7 +48,7 @@ export const command: Command = {
       console.warn('[doll] chart unavailable, posting the FAQ alone:', err);
     }
 
-    const embed = brandEmbed(new EmbedBuilder())
+    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR)
       .setTitle('Doll Leveling FAQ')
       .setDescription(
         FAQ.map((item) => `**${item.question}**\n\n${item.tldr}`).join('\n\n')

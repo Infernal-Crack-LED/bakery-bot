@@ -1,6 +1,10 @@
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
-import { brandEmbed, cardReply } from '../../lib/nikkesim/card-reply.js';
+import {
+  brandEmbed,
+  cardReply,
+  BOT_COLOR,
+} from '../../lib/nikkesim/card-reply.js';
 import {
   resourcesCardImage,
   type CardImage,
@@ -53,7 +57,7 @@ export const command: Command = {
       return;
     }
 
-    const embed = brandEmbed(new EmbedBuilder()).setDescription(
+    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR).setDescription(
       '**[Full calculator on nikkesim.app](https://www.nikkesim.app/resources)**'
     );
 

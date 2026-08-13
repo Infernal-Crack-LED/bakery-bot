@@ -22,17 +22,27 @@ import { AttachmentBuilder, EmbedBuilder } from 'discord.js';
 import { iconAttachment, ICON_URL } from './icon.js';
 import { fetchImageAttachment, type CardImage } from './client.js';
 
-/** The bot's nikkesim.app embed colour. */
+/** nikkesim.app's own accent, the stripe on /dps, /teams and /roster. */
 export const NIKKESIM_COLOR = 0x5b9dff;
+/** The bot's house pink, the stripe on the calculator commands. */
+export const BOT_COLOR = 0xf472b6;
 
 /**
  * The nikkesim.app mark as the embed's AUTHOR line — the smallest icon slot
  * Discord offers (a ~24px circle beside one line of text), replacing the 80px
  * `setThumbnail` block. The card above already carries the full-size mark in
  * its top-right corner, so a second large logo in the embed is a duplicate.
+ *
+ * `color` is per-command and deliberately NOT unified here: the commands split
+ * blue/pink before this existed, and the ruling that moved the image out of the
+ * embed said nothing about recolouring five of them. Unifying them is a
+ * separate, owner-visible change.
  */
-export function brandEmbed(embed: EmbedBuilder): EmbedBuilder {
-  return embed.setColor(NIKKESIM_COLOR).setAuthor({
+export function brandEmbed(
+  embed: EmbedBuilder,
+  color: number = NIKKESIM_COLOR
+): EmbedBuilder {
+  return embed.setColor(color).setAuthor({
     name: 'nikkesim.app',
     iconURL: ICON_URL,
     url: 'https://www.nikkesim.app',
