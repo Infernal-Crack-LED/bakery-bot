@@ -1,24 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
 
+// Tier cards are pre-rendered (nine of them), so the card normally comes back
+// as a URL Discord's proxy already holds, with nothing to upload.
+const CARD_URL = 'https://nikkesim.app/api/v1/img/resources/t9.a1900000.png';
+
 vi.mock('../../lib/nikkesim/client.js', () => ({
-  resourcesImageUrl: vi.fn(() =>
-    Promise.resolve(
-      'https://www.nikkesim.app/api/v1/img/cache/resources.deadbeef.png'
-    )
-  ),
+  resourcesCardImage: vi.fn(() => Promise.resolve({ url: CARD_URL })),
 }));
 
-import { resourcesImageUrl } from '../../lib/nikkesim/client.js';
+import { resourcesCardImage } from '../../lib/nikkesim/client.js';
 import { command } from './ai.js';
 
 function fakeInteraction(tier?: number) {
-  const reply = vi.fn().mockResolvedValue(undefined);
+  const editReply = vi.fn().mockResolvedValue(undefined);
+  const deferReply = vi.fn().mockResolvedValue(undefined);
   return {
     interaction: {
       options: { getInteger: () => tier ?? null },
-      reply,
+      deferReply,
+      editReply,
     },
-    reply,
+    deferReply,
+    editReply,
   };
 }
 
@@ -34,30 +37,46 @@ describe('/ai', () => {
   });
 
   it('replies with a link embed pointing at the nikkesim resources image', async () => {
-    const { interaction, reply } = fakeInteraction();
+    const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
-    expect(resourcesImageUrl).toHaveBeenCalledWith(undefined);
-    expect(reply).toHaveBeenCalledOnce();
-    const payload = reply.mock.calls[0]![0];
+    expect(resourcesCardImage).toHaveBeenCalledWith(undefined);
+    expect(editReply).toHaveBeenCalledOnce();
+    const payload = editReply.mock.calls[0]![0];
     const embed = payload.embeds[0].toJSON();
-    expect(embed.image.url).toBe(
-      'https://www.nikkesim.app/api/v1/img/cache/resources.deadbeef.png'
-    );
+    expect(embed.image.url).toBe(CARD_URL);
     expect(JSON.stringify(embed)).toContain('nikkesim.app/resources');
     expect(payload.files).toHaveLength(1); // icon thumbnail only
+  });
+
+  // An uncovered tier falls back to an on-demand render, which is uploaded —
+  // that can outlast the 3s initial-response deadline, hence the defer.
+  it('defers before rendering, and uploads a card that has bytes', async () => {
+    const file = { name: 'resources-card.png' };
+    vi.mocked(resourcesCardImage).mockResolvedValueOnce({
+      url: 'attachment://resources-card.png',
+      file: file as never,
+    });
+    const { interaction, deferReply, editReply } = fakeInteraction(5);
+    await command.execute(interaction as never);
+    expect(deferReply).toHaveBeenCalledOnce();
+    const payload = editReply.mock.calls[0]![0];
+    expect(payload.embeds[0].toJSON().image.url).toBe(
+      'attachment://resources-card.png'
+    );
+    expect(payload.files).toEqual([expect.anything(), file]);
   });
 
   it('passes the tier option through when given', async () => {
     const { interaction } = fakeInteraction(3);
     await command.execute(interaction as never);
-    expect(resourcesImageUrl).toHaveBeenCalledWith(3);
+    expect(resourcesCardImage).toHaveBeenCalledWith(3);
   });
 
   it('replies with an error message when the image API is unreachable', async () => {
-    vi.mocked(resourcesImageUrl).mockRejectedValueOnce(new Error('down'));
-    const { interaction, reply } = fakeInteraction();
+    vi.mocked(resourcesCardImage).mockRejectedValueOnce(new Error('down'));
+    const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
-    expect(reply).toHaveBeenCalledOnce();
-    expect(reply.mock.calls[0]![0]).toContain('nikkesim.app');
+    expect(editReply).toHaveBeenCalledOnce();
+    expect(editReply.mock.calls[0]![0]).toContain('nikkesim.app');
   });
 });

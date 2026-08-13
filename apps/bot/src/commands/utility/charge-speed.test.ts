@@ -36,16 +36,15 @@ import { tableCardImage } from '../../lib/nikkesim/client.js';
 import { command } from './charge-speed.js';
 
 function fakeInteraction(character: string | null) {
-  const reply = vi.fn().mockResolvedValue(undefined);
   const editReply = vi.fn().mockResolvedValue(undefined);
+  const deferReply = vi.fn().mockResolvedValue(undefined);
   return {
     interaction: {
-      deferReply: vi.fn().mockResolvedValue(undefined),
+      deferReply,
       options: { getString: () => character },
-      reply,
       editReply,
     },
-    reply,
+    deferReply,
     editReply,
   };
 }
@@ -68,20 +67,24 @@ describe('/charge-speed', () => {
     expect(opt?.required).toBeFalsy();
   });
 
+  // Both paths defer: the generic table is normally a pre-rendered URL, but a
+  // manifest miss falls back to an on-demand render that gets uploaded, which
+  // can outlast the 3s Discord gives an initial response.
   it('embeds the generic table when no character is given', async () => {
-    const { interaction, reply } = fakeInteraction(null);
+    const { interaction, deferReply, editReply } = fakeInteraction(null);
     await command.execute(interaction as never);
+    expect(deferReply).toHaveBeenCalledOnce();
     expect(tableCardImage).toHaveBeenCalledWith('charge-speed');
-    const payload = reply.mock.calls[0]![0];
+    const payload = editReply.mock.calls[0]![0];
     expect(payload.embeds[0].toJSON().image.url).toBe(GENERIC_URL);
     expect(payload.files).toHaveLength(1); // icon thumbnail only
   });
 
   it('errors out when the generic table cannot be resolved', async () => {
     vi.mocked(tableCardImage).mockRejectedValueOnce(new Error('down'));
-    const { interaction, reply } = fakeInteraction(null);
+    const { interaction, editReply } = fakeInteraction(null);
     await command.execute(interaction as never);
-    expect(reply.mock.calls[0]![0]).toContain('nikkesim.app');
+    expect(editReply.mock.calls[0]![0]).toContain('nikkesim.app');
   });
 
   it('embeds the per-unit table, keyed by the DB id as the nikkesim slug', async () => {

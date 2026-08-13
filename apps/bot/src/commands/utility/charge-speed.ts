@@ -73,6 +73,11 @@ export const command: Command = {
   },
   execute: async (interaction) => {
     const query = interaction.options.getString('character');
+    // Deferred on both paths. The generic table is normally a pre-rendered URL,
+    // but a manifest miss falls back to an on-demand render whose bytes we then
+    // upload — that can outlast the 3s Discord gives an initial response, and
+    // blowing that deadline loses the whole reply rather than just delaying it.
+    await interaction.deferReply();
 
     if (!query) {
       // Generic (1.0s) table — the pre-rendered manifest image.
@@ -80,7 +85,7 @@ export const command: Command = {
       try {
         card = await tableCardImage('charge-speed');
       } catch {
-        await interaction.reply(
+        await interaction.editReply(
           'Could not fetch the charge-speed table from nikkesim.app \u2014 try again later.'
         );
         return;
@@ -93,14 +98,13 @@ export const command: Command = {
           'Use `/charge-speed character:<name>` for unit-specific breakpoints.\n' +
             '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
         );
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [embed],
         files: [iconAttachment(), ...(card.file ? [card.file] : [])],
       });
       return;
     }
 
-    await interaction.deferReply();
     const character = await findCharacter(query);
     if (!character) {
       await interaction.editReply(

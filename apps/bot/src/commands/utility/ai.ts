@@ -1,7 +1,10 @@
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
 import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
-import { resourcesImageUrl } from '../../lib/nikkesim/client.js';
+import {
+  resourcesCardImage,
+  type CardImage,
+} from '../../lib/nikkesim/client.js';
 
 /**
  * /ai — Resource Calculator (Anomaly Interception): daily custom-module, T9
@@ -32,11 +35,17 @@ export const command: Command = {
   execute: async (interaction) => {
     const tier = interaction.options.getInteger('tier') ?? undefined;
 
-    let imageUrl: string;
+    // Deferred because a tier the pre-rendered set doesn't cover falls back to
+    // an on-demand render whose bytes we then upload — that can outlast the 3s
+    // Discord gives an initial response, and blowing that deadline loses the
+    // whole reply rather than just delaying it.
+    await interaction.deferReply();
+
+    let card: CardImage;
     try {
-      imageUrl = await resourcesImageUrl(tier);
+      card = await resourcesCardImage(tier);
     } catch (err) {
-      await interaction.reply(
+      await interaction.editReply(
         `Couldn't render the Resource Calculator — ${
           err instanceof Error ? err.message : 'nikkesim.app is unavailable'
         }.\n**[Full calculator on nikkesim.app](https://www.nikkesim.app/resources)**`
@@ -47,11 +56,14 @@ export const command: Command = {
     const embed = new EmbedBuilder()
       .setColor(0xf472b6)
       .setThumbnail(ICON_URL)
-      .setImage(imageUrl)
+      .setImage(card.url)
       .setDescription(
         '**[Full calculator on nikkesim.app](https://www.nikkesim.app/resources)**'
       );
 
-    await interaction.reply({ embeds: [embed], files: [iconAttachment()] });
+    await interaction.editReply({
+      embeds: [embed],
+      files: [iconAttachment(), ...(card.file ? [card.file] : [])],
+    });
   },
 };
