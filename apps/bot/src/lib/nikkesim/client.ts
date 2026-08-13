@@ -376,6 +376,48 @@ export async function resourcesCardImage(tier?: number): Promise<CardImage> {
   return isDynamic(url) ? dynamicCard(url, 'resources-card.png') : { url };
 }
 
+// ---- doll leveling ----------------------------------------------------------
+
+export type DollRarity = 'R' | 'SR';
+
+/** The plan /doll shows: an SR doll levelled from the bottom, which is the
+ * /doll page's own default view. */
+const DEFAULT_DOLL_RARITY: DollRarity = 'SR';
+const DEFAULT_DOLL_FROM = 0;
+
+/**
+ * Doll Leveling card — which kit tier to feed at each phase, plus the expected
+ * kit cost to finish.
+ *
+ * Only the full journey (from phase 0) is pre-rendered, one card per rarity;
+ * nikke-sim renders any other starting phase on demand.
+ */
+export async function dollImageUrl(
+  rarity: DollRarity = DEFAULT_DOLL_RARITY,
+  from: number = DEFAULT_DOLL_FROM
+): Promise<string> {
+  try {
+    const url = await manifestImageUrl(`doll/${rarity.toLowerCase()}.${from}`);
+    if (url) {
+      return url;
+    }
+  } catch {
+    // Manifest unavailable — fall through to the dynamic route, which renders
+    // the same card on demand.
+  }
+  const params = new URLSearchParams({ rarity, from: String(from) });
+  return verifyImageUrl(`${NIKKESIM_BASE_URL}${API_PREFIX}doll.png?${params}`);
+}
+
+/** Doll Leveling card as something an embed can carry. */
+export async function dollCardImage(
+  rarity?: DollRarity,
+  from?: number
+): Promise<CardImage> {
+  const url = await dollImageUrl(rarity, from);
+  return isDynamic(url) ? dynamicCard(url, 'doll-card.png') : { url };
+}
+
 // ---- unit cards -------------------------------------------------------------
 
 /**

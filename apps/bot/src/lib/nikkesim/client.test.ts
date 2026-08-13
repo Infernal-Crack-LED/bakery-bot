@@ -52,6 +52,10 @@ const MANIFEST = {
     // Tier 5 is deliberately absent, to exercise the dynamic fallback.
     'resources/t3': { ...IMG, file: 'resources/t3.a1300000.png' },
     'resources/t9': { ...IMG, file: 'resources/t9.a1900000.png' },
+    // Only the full journey is pre-rendered, one card per doll rarity; every
+    // other starting phase renders on demand.
+    'doll/r.0': { ...IMG, file: 'doll/r.0.d0110000.png' },
+    'doll/sr.0': { ...IMG, file: 'doll/sr.0.d0110001.png' },
     'unit/crown.discord': {
       ...IMG,
       file: 'unit/crown.discord.1a2b3c4d.webp',
@@ -348,6 +352,46 @@ describe('resourcesImageUrl', () => {
     const { resourcesImageUrl } = await importClient();
     await expect(resourcesImageUrl(10)).rejects.toThrow(
       'tier must be an integer 1-9'
+    );
+  });
+});
+
+describe('dollImageUrl', () => {
+  it('defaults to the /doll page default view — an SR doll from phase 0', async () => {
+    const { dollImageUrl } = await importClient();
+    expect(await dollImageUrl()).toBe(
+      `${BASE}/api/v1/img/doll/sr.0.d0110001.png`
+    );
+    // Manifest URLs are trusted — no verification probe.
+    expect(probedUrls()).toHaveLength(0);
+  });
+
+  it('resolves the other pre-rendered rarity', async () => {
+    const { dollImageUrl } = await importClient();
+    expect(await dollImageUrl('R')).toBe(
+      `${BASE}/api/v1/img/doll/r.0.d0110000.png`
+    );
+  });
+
+  it('falls back to the dynamic route for a starting phase past the head set', async () => {
+    const { dollImageUrl } = await importClient();
+    expect(await dollImageUrl('SR', 7)).toBe(CACHE_URL);
+    expect(probedUrls()).toEqual([
+      `${BASE}/api/v1/img/doll.png?rarity=SR&from=7`,
+    ]);
+  });
+
+  it('rejects with the API reason for an out-of-range phase', async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        String(url).endsWith('manifest.json')
+          ? okManifest()
+          : rejected('from must be an integer 0-14')
+      )
+    );
+    const { dollImageUrl } = await importClient();
+    await expect(dollImageUrl('SR', 99)).rejects.toThrow(
+      'from must be an integer 0-14'
     );
   });
 });
