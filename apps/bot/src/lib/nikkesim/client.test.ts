@@ -38,6 +38,17 @@ const MANIFEST = {
     },
     'table/ol': { ...IMG, file: 'table/ol.bbb22222.png' },
     'table/charge-speed': { ...IMG, file: 'table/charge-speed.ccc33333.png' },
+    // Per-unit tables, for the slug `alice` only. Every other slug is
+    // deliberately absent, standing in for a NIKKE synced since nikke-sim's
+    // last deploy — those take the dynamic route.
+    'table/charge-speed.alice': {
+      ...IMG,
+      file: 'table/charge-speed.alice.a11ce000.png',
+    },
+    'table/max-ammo.alice': {
+      ...IMG,
+      file: 'table/max-ammo.alice.a11ce111.png',
+    },
     // Tier 5 is deliberately absent, to exercise the dynamic fallback.
     'resources/t3': { ...IMG, file: 'resources/t3.a1300000.png' },
     'resources/t9': { ...IMG, file: 'resources/t9.a1900000.png' },
@@ -225,16 +236,45 @@ describe('tableImageUrl', () => {
     );
   });
 
-  it('uses the dynamic route for per-unit tables, and verifies them', async () => {
+  it('resolves per-unit tables through the manifest', async () => {
+    const { tableImageUrl } = await importClient();
+    expect(await tableImageUrl('charge-speed', { unit: 'alice' })).toBe(
+      `${BASE}/api/v1/img/table/charge-speed.alice.a11ce000.png`
+    );
+    expect(await tableImageUrl('max-ammo', { unit: 'alice' })).toBe(
+      `${BASE}/api/v1/img/table/max-ammo.alice.a11ce111.png`
+    );
+    // Manifest URLs are trusted — no verification probe.
+    expect(probedUrls()).toHaveLength(0);
+  });
+
+  // Expected, not exceptional: the pre-rendered set is frozen at nikke-sim's
+  // last deploy while the bot's unit list syncs daily, so a NIKKE released in
+  // between renders on demand until the next deploy.
+  it('falls back to the dynamic route for a unit with no pre-rendered table', async () => {
+    const { tableImageUrl } = await importClient();
+    expect(
+      await tableImageUrl('max-ammo', { unit: 'a-unit-synced-after-deploy' })
+    ).toBe(CACHE_URL);
+    expect(probedUrls()).toEqual([
+      `${BASE}/api/v1/img/table/max-ammo.png?unit=a-unit-synced-after-deploy`,
+    ]);
+  });
+
+  it('falls back to the dynamic route when the manifest is unavailable', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith('manifest.json')) {
+        return Promise.reject(new Error('network down'));
+      }
+      return Promise.resolve(
+        u.includes('/img/cache/') ? cachedPng() : renderable()
+      );
+    });
     const { tableImageUrl } = await importClient();
     expect(await tableImageUrl('charge-speed', { unit: 'alice' })).toBe(
       CACHE_URL
     );
-    expect(await tableImageUrl('max-ammo', { unit: 'alice' })).toBe(CACHE_URL);
-    expect(probedUrls()).toEqual([
-      `${BASE}/api/v1/img/table/charge-speed.png?unit=alice`,
-      `${BASE}/api/v1/img/table/max-ammo.png?unit=alice`,
-    ]);
   });
 
   it('rejects with the API reason for a unit nikke-sim does not know', async () => {
@@ -414,15 +454,20 @@ describe('verifyImageUrl', () => {
 // The seam that decides URL vs upload: pre-rendered images keep the URL (the
 // proxy is warm on them), on-demand renders are uploaded.
 describe('card images', () => {
-  it('links the pre-rendered table but uploads the per-unit one', async () => {
+  it('links a pre-rendered table but uploads an on-demand render', async () => {
     const { tableCardImage } = await importClient();
-    const generic = await tableCardImage('charge-speed');
-    expect(generic).toEqual({
+    expect(await tableCardImage('charge-speed')).toEqual({
       url: `${BASE}/api/v1/img/table/charge-speed.ccc33333.png`,
     });
-    const perUnit = await tableCardImage('charge-speed', { unit: 'alice' });
-    expect(perUnit.url).toBe('attachment://charge-speed-table.png');
-    expect(perUnit.file?.name).toBe('charge-speed-table.png');
+    expect(await tableCardImage('charge-speed', { unit: 'alice' })).toEqual({
+      url: `${BASE}/api/v1/img/table/charge-speed.alice.a11ce000.png`,
+    });
+    // Not in the pre-rendered set — rendered on demand, so uploaded.
+    const fresh = await tableCardImage('max-ammo', {
+      unit: 'a-unit-synced-after-deploy',
+    });
+    expect(fresh.url).toBe('attachment://max-ammo-table.png');
+    expect(fresh.file?.name).toBe('max-ammo-table.png');
   });
 
   it('links the headline DPS chart but uploads a windowed one', async () => {

@@ -281,11 +281,17 @@ export async function dpsCardImage(
 export type TableKind = 'ol' | 'charge-speed' | 'max-ammo';
 
 /**
- * Table card image URL. Both static tables resolve through the manifest; the
- * two differ in what happens when that misses, because the API is asymmetric:
- * there is no dynamic `table/ol.png` route (it 404s), so OL has nowhere to
- * fall back to and throws, while generic charge-speed falls back to its
- * dynamic route. Per-unit tables always use the dynamic routes.
+ * Table card image URL. Every table is pre-rendered — the two static ones plus
+ * one per unit (`table/<kind>.<slug>`) — so the normal answer is a manifest URL
+ * Discord's proxy can already be holding.
+ *
+ * What happens on a manifest MISS differs by table, because the API is
+ * asymmetric: there is no dynamic `table/ol.png` route (it 404s), so OL has
+ * nowhere to fall back to and throws, while charge-speed and max-ammo fall back
+ * to their dynamic routes. A per-unit miss is expected rather than exceptional —
+ * the pre-rendered set is frozen at nikke-sim's last deploy while the bot's unit
+ * list syncs daily, so a freshly-released NIKKE has no card yet and renders on
+ * demand until the next deploy.
  */
 export async function tableImageUrl(
   table: TableKind,
@@ -298,25 +304,25 @@ export async function tableImageUrl(
     }
     return url;
   }
-  if (table === 'charge-speed' && !opts.unit) {
-    try {
-      const url = await manifestImageUrl('table/charge-speed');
-      if (url) {
-        return url;
-      }
-    } catch {
-      // fall through to the dynamic generic table
-    }
-    return verifyImageUrl(
-      `${NIKKESIM_BASE_URL}${API_PREFIX}table/charge-speed.png`
-    );
-  }
   if (table === 'max-ammo' && !opts.unit) {
     throw new Error('max-ammo requires a unit');
   }
-  const params = new URLSearchParams({ unit: opts.unit! });
+  try {
+    // 'table/charge-speed' (generic) and 'table/<kind>.<slug>' (per-unit).
+    const url = await manifestImageUrl(
+      opts.unit ? `table/${table}.${opts.unit}` : `table/${table}`
+    );
+    if (url) {
+      return url;
+    }
+  } catch {
+    // Manifest unavailable — fall through to the dynamic route, which renders
+    // the same table on demand.
+  }
+  const params = new URLSearchParams(opts.unit ? { unit: opts.unit } : {});
+  const qs = params.toString();
   return verifyImageUrl(
-    `${NIKKESIM_BASE_URL}${API_PREFIX}table/${table}.png?${params}`
+    `${NIKKESIM_BASE_URL}${API_PREFIX}table/${table}.png${qs ? `?${qs}` : ''}`
   );
 }
 
