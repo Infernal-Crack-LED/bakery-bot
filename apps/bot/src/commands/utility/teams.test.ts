@@ -47,6 +47,11 @@ vi.mock('drizzle-orm', () => ({ eq: vi.fn() }));
 vi.mock('../../lib/nikkesim/client.js', () => ({
   teamCardImage: vi.fn(() => Promise.resolve({ url: CARD_URL })),
   NIKKESIM_BASE_URL: SITE, // simPageUrl builds its links off this
+  // The card is posted as an ATTACHMENT above the embed (card-reply.ts), so
+  // WHICH card was rendered now shows up here rather than in embed.image.
+  fetchImageAttachment: vi.fn((_url: string, name: string) =>
+    Promise.resolve({ name } as never)
+  ),
 }));
 // simPageUrl is the real one — the link it builds is what these tests assert.
 vi.mock('../../lib/nikkesim/shared-config.js', async (orig) => ({
@@ -54,7 +59,10 @@ vi.mock('../../lib/nikkesim/shared-config.js', async (orig) => ({
   findSharedResultsId: vi.fn(() => Promise.resolve(null)),
 }));
 
-import { teamCardImage } from '../../lib/nikkesim/client.js';
+import {
+  teamCardImage,
+  fetchImageAttachment,
+} from '../../lib/nikkesim/client.js';
 import { findSharedResultsId } from '../../lib/nikkesim/shared-config.js';
 import { command } from './teams.js';
 
@@ -85,6 +93,7 @@ describe('/teams', () => {
     vi.mocked(teamCardImage).mockClear();
     vi.mocked(teamCardImage).mockResolvedValue({ url: CARD_URL });
     vi.mocked(findSharedResultsId).mockClear();
+    vi.mocked(fetchImageAttachment).mockClear();
     vi.mocked(findSharedResultsId).mockResolvedValue(null);
     findMany.mockResolvedValue([row('Main', TEAM_CODE)]);
   });
@@ -119,13 +128,22 @@ describe('/teams', () => {
     expect(opt?.required).toBeFalsy();
   });
 
-  it('embeds the team card, keyed by the saved build code', async () => {
+  it('posts the team card as an attachment, keyed by the saved build code', async () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
     expect(teamCardImage).toHaveBeenCalledWith(TEAM_CODE);
-    const embed = editReply.mock.calls[0]![0].embeds[0].toJSON();
-    expect(embed.image.url).toBe(CARD_URL);
+    const payload = editReply.mock.calls[0]![0];
+    const embed = payload.embeds[0].toJSON();
+    // the picture is NOT the embed's — an embed caps it at the embed column
+    expect(embed.image).toBeUndefined();
+    expect(embed.thumbnail).toBeUndefined();
+    expect(embed.author.name).toBe('nikkesim.app');
     expect(embed.title).toBe('Main');
+    expect(fetchImageAttachment).toHaveBeenCalledWith(
+      CARD_URL,
+      'team-card.png'
+    );
+    expect(payload.files[0]).toEqual({ name: 'team-card.png' });
   });
 
   // A build code nikke-sim's decoder rejects, or the site being down, must not

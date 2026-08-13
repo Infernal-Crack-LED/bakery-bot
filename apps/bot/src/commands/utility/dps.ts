@@ -7,7 +7,7 @@ import {
   type CardImage,
   type DpsElement,
 } from '../../lib/nikkesim/client.js';
-import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
+import { brandEmbed, cardReply } from '../../lib/nikkesim/card-reply.js';
 
 const ELEMENTS: DpsElement[] = ['fire', 'water', 'wind', 'electric', 'iron'];
 const ELEMENT_CHOICES = ELEMENTS.map((e) => ({
@@ -57,17 +57,10 @@ export const command: Command = {
       return;
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(0x5b9dff)
-      .setThumbnail(ICON_URL)
-      .setImage(card.url)
-      .setDescription(
-        `**[Full chart on nikkesim.app](https://www.nikkesim.app/dpschart)**`
-      );
+    const embed = brandEmbed(new EmbedBuilder()).setDescription(
+      `**[Full chart on nikkesim.app](https://www.nikkesim.app/dpschart)**`
+    );
 
-    await interaction.editReply({
-      embeds: [embed],
-      files: [iconAttachment(), ...(card.file ? [card.file] : [])],
-    });
+    await interaction.editReply(await cardReply(embed, card, 'dps-chart.png'));
   },
 };

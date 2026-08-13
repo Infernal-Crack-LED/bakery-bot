@@ -57,6 +57,11 @@ vi.mock('../../lib/nikkesim/client.js', () => ({
   rosterCardImage: vi.fn(() => Promise.resolve({ url: CARD_URL })),
   rosterCardImageById: vi.fn(() => Promise.resolve({ url: SHARED_CARD_URL })),
   NIKKESIM_BASE_URL: SITE, // simPageUrl builds its links off this
+  // The card is posted as an ATTACHMENT above the embed (card-reply.ts), so
+  // WHICH card was rendered now shows up here rather than in embed.image.
+  fetchImageAttachment: vi.fn((_url: string, name: string) =>
+    Promise.resolve({ name } as never)
+  ),
 }));
 // simPageUrl is the real one — the link it builds is what these tests assert.
 vi.mock('../../lib/nikkesim/shared-config.js', async (orig) => ({
@@ -67,6 +72,7 @@ vi.mock('../../lib/nikkesim/shared-config.js', async (orig) => ({
 import {
   rosterCardImage,
   rosterCardImageById,
+  fetchImageAttachment,
 } from '../../lib/nikkesim/client.js';
 import { findSharedResultsId } from '../../lib/nikkesim/shared-config.js';
 import { command } from './roster.js';
@@ -101,6 +107,7 @@ describe('/roster', () => {
     vi.mocked(rosterCardImageById).mockResolvedValue({ url: SHARED_CARD_URL });
     vi.mocked(findSharedResultsId).mockClear();
     vi.mocked(findSharedResultsId).mockResolvedValue(null);
+    vi.mocked(fetchImageAttachment).mockClear();
     findMany.mockResolvedValue([row('Solo', ROSTER_CODE)]);
   });
 
@@ -112,13 +119,20 @@ describe('/roster', () => {
     expect(opt?.required).toBeFalsy();
   });
 
-  it('embeds the roster card, keyed by the saved build code', async () => {
+  it('posts the roster card as an attachment, keyed by the saved build code', async () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
     expect(rosterCardImage).toHaveBeenCalledWith(ROSTER_CODE);
     const embed = editReply.mock.calls[0]![0].embeds[0].toJSON();
-    expect(embed.image.url).toBe(CARD_URL);
+    // the picture is NOT the embed's — an embed caps it at the embed column
+    expect(embed.image).toBeUndefined();
+    expect(embed.thumbnail).toBeUndefined();
+    expect(embed.author.name).toBe('nikkesim.app');
     expect(embed.title).toBe('Solo');
+    expect(fetchImageAttachment).toHaveBeenCalledWith(
+      CARD_URL,
+      'roster-card.png'
+    );
   });
 
   // The whole point of the shared-config lookup: a bare build code renders
@@ -126,7 +140,7 @@ describe('/roster', () => {
   // has shared THIS build the card must come from the id that carries results.
   it('renders from the shared config when the user has one for this build', async () => {
     vi.mocked(findSharedResultsId).mockResolvedValue('cfg-1');
-    const { interaction, editReply } = fakeInteraction();
+    const { interaction } = fakeInteraction();
     await command.execute(interaction as never);
     expect(findSharedResultsId).toHaveBeenCalledWith(
       'u1',
@@ -135,8 +149,9 @@ describe('/roster', () => {
     );
     expect(rosterCardImageById).toHaveBeenCalledWith('cfg-1');
     expect(rosterCardImage).not.toHaveBeenCalled();
-    expect(editReply.mock.calls[0]![0].embeds[0].toJSON().image.url).toBe(
-      SHARED_CARD_URL
+    expect(fetchImageAttachment).toHaveBeenCalledWith(
+      SHARED_CARD_URL,
+      'roster-card.png'
     );
   });
 
@@ -167,11 +182,12 @@ describe('/roster', () => {
       new Error('unknown config id')
     );
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { interaction, editReply } = fakeInteraction();
+    const { interaction } = fakeInteraction();
     await command.execute(interaction as never);
     expect(rosterCardImage).toHaveBeenCalledWith(ROSTER_CODE);
-    expect(editReply.mock.calls[0]![0].embeds[0].toJSON().image.url).toBe(
-      CARD_URL
+    expect(fetchImageAttachment).toHaveBeenCalledWith(
+      CARD_URL,
+      'roster-card.png'
     );
     warn.mockRestore();
   });
@@ -203,9 +219,9 @@ describe('/roster', () => {
   });
 
   // A populated roster code is ~3.3 KB, past Discord's 2048-char embed image
-  // URL limit, so the client hands back bytes instead. Getting this wrong is
-  // a 50035 that loses the whole reply, not a missing picture.
-  it('uploads the card alongside the icon when it comes back as bytes', async () => {
+  // URL limit, so the client hands back bytes instead — which is now the only
+  // shape a card ever ships in, so those bytes are reused rather than re-fetched.
+  it('reuses the bytes when the card comes back already uploaded', async () => {
     vi.mocked(rosterCardImage).mockResolvedValue({
       url: 'attachment://roster-card.png',
       file: new AttachmentBuilder(Buffer.from([1, 2, 3]), {
@@ -215,10 +231,9 @@ describe('/roster', () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
     const payload = editReply.mock.calls[0]![0];
-    expect(payload.embeds[0].toJSON().image.url).toBe(
-      'attachment://roster-card.png'
-    );
-    expect(payload.files).toHaveLength(2); // icon + the card itself
-    expect(payload.files[1].name).toBe('roster-card.png');
+    expect(payload.embeds[0].toJSON().image).toBeUndefined();
+    expect(fetchImageAttachment).not.toHaveBeenCalled();
+    expect(payload.files).toHaveLength(2); // the card, then the icon
+    expect(payload.files[0].name).toBe('roster-card.png');
   });
 });

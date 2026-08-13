@@ -26,6 +26,10 @@ vi.mock('@app/db', () => ({
 
 vi.mock('../../lib/nikkesim/client.js', () => ({
   tableCardImage: vi.fn(() => Promise.resolve(CARD)),
+  // The card travels as an ATTACHMENT now (card-reply.ts).
+  fetchImageAttachment: vi.fn((_url: string, name: string) =>
+    Promise.resolve({ name } as never)
+  ),
 }));
 
 import { tableCardImage } from '../../lib/nikkesim/client.js';
@@ -58,14 +62,18 @@ describe('/max-ammo', () => {
     expect(opt?.required).toBe(true);
   });
 
-  it('embeds the table image, keyed by the DB id as the nikkesim slug', async () => {
+  it('posts the table as an attachment, keyed by the DB id as the nikkesim slug', async () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
     expect(tableCardImage).toHaveBeenCalledWith('max-ammo', { unit: 'alice' });
     const payload = editReply.mock.calls[0]![0];
-    expect(payload.embeds[0].toJSON().image.url).toBe(CARD.url);
-    // Icon thumbnail + the card itself, so the reply lands complete.
-    expect(payload.files).toEqual([expect.anything(), CARD.file]);
+    const embed = payload.embeds[0].toJSON();
+    // the picture is NOT the embed's — an embed caps it at the embed column
+    expect(embed.image).toBeUndefined();
+    expect(embed.thumbnail).toBeUndefined();
+    expect(embed.author.name).toBe('nikkesim.app');
+    // card first, then the icon the author line references
+    expect(payload.files).toEqual([CARD.file, expect.anything()]);
   });
 
   // The bot syncs nikkeCharacters daily from blablalink while nikke-sim's unit

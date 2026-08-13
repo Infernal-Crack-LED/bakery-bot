@@ -1,6 +1,6 @@
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
-import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
+import { brandEmbed, cardReply } from '../../lib/nikkesim/card-reply.js';
 import {
   resourcesCardImage,
   type CardImage,
@@ -53,17 +53,12 @@ export const command: Command = {
       return;
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(0xf472b6)
-      .setThumbnail(ICON_URL)
-      .setImage(card.url)
-      .setDescription(
-        '**[Full calculator on nikkesim.app](https://www.nikkesim.app/resources)**'
-      );
+    const embed = brandEmbed(new EmbedBuilder()).setDescription(
+      '**[Full calculator on nikkesim.app](https://www.nikkesim.app/resources)**'
+    );
 
-    await interaction.editReply({
-      embeds: [embed],
-      files: [iconAttachment(), ...(card.file ? [card.file] : [])],
-    });
+    await interaction.editReply(
+      await cardReply(embed, card, 'resources-card.png')
+    );
   },
 };

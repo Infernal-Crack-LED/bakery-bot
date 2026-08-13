@@ -30,6 +30,11 @@ vi.mock('../../lib/nikkesim/client.js', () => ({
   tableCardImage: vi.fn((_table: string, opts?: { unit?: string }) =>
     Promise.resolve(opts?.unit ? UNIT_CARD : GENERIC_CARD)
   ),
+  // The card travels as an ATTACHMENT now (card-reply.ts), so a manifest
+  // URL's bytes get fetched and uploaded with the message.
+  fetchImageAttachment: vi.fn((_url: string, name: string) =>
+    Promise.resolve({ name } as never)
+  ),
 }));
 
 import { tableCardImage } from '../../lib/nikkesim/client.js';
@@ -70,14 +75,18 @@ describe('/charge-speed', () => {
   // Both paths defer: the generic table is normally a pre-rendered URL, but a
   // manifest miss falls back to an on-demand render that gets uploaded, which
   // can outlast the 3s Discord gives an initial response.
-  it('embeds the generic table when no character is given', async () => {
+  it('posts the generic table as an attachment when no character is given', async () => {
     const { interaction, deferReply, editReply } = fakeInteraction(null);
     await command.execute(interaction as never);
     expect(deferReply).toHaveBeenCalledOnce();
     expect(tableCardImage).toHaveBeenCalledWith('charge-speed');
     const payload = editReply.mock.calls[0]![0];
-    expect(payload.embeds[0].toJSON().image.url).toBe(GENERIC_URL);
-    expect(payload.files).toHaveLength(1); // icon thumbnail only
+    const embed = payload.embeds[0].toJSON();
+    // the picture is NOT the embed's — an embed caps it at the embed column
+    expect(embed.image).toBeUndefined();
+    expect(embed.thumbnail).toBeUndefined();
+    expect(embed.author.name).toBe('nikkesim.app');
+    expect(payload.files[0]).toEqual({ name: 'charge-speed-table.png' });
   });
 
   it('errors out when the generic table cannot be resolved', async () => {
@@ -87,16 +96,16 @@ describe('/charge-speed', () => {
     expect(editReply.mock.calls[0]![0]).toContain('nikkesim.app');
   });
 
-  it('embeds the per-unit table, keyed by the DB id as the nikkesim slug', async () => {
+  it('posts the per-unit table as an attachment, keyed by the DB id as the nikkesim slug', async () => {
     const { interaction, editReply } = fakeInteraction('alice');
     await command.execute(interaction as never);
     expect(tableCardImage).toHaveBeenCalledWith('charge-speed', {
       unit: 'alice',
     });
     const payload = editReply.mock.calls[0]![0];
-    expect(payload.embeds[0].toJSON().image.url).toBe(UNIT_CARD.url);
-    // Icon thumbnail + the card itself, so the reply lands complete.
-    expect(payload.files).toEqual([expect.anything(), UNIT_CARD.file]);
+    expect(payload.embeds[0].toJSON().image).toBeUndefined();
+    // card first, then the icon the embed's author line references
+    expect(payload.files).toEqual([UNIT_CARD.file, expect.anything()]);
   });
 
   // See max-ammo.test.ts — the bot's unit set runs ahead of nikke-sim's.

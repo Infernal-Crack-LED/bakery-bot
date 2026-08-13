@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // /dps only ever asks for a headline cell, which is pre-rendered — so the card
-// comes back as a URL Discord's proxy already holds, with nothing to upload.
+// comes back as a manifest URL, whose bytes card-reply.ts then fetches so the
+// chart can be posted as an attachment instead of inside the embed.
 const CHART_URL =
   'https://nikkesim.app/api/v1/img/dps/solo.eleweak.c100.8of12.all.aaa11111.png';
 
@@ -9,9 +10,15 @@ vi.mock('../../lib/nikkesim/client.js', () => ({
   DEFAULT_DPS_CELL: 'solo.eleweak.c100.8of12',
   NEUTRAL_DPS_CELL: 'solo.neutral.c100.8of12',
   dpsCardImage: vi.fn(() => Promise.resolve({ url: CHART_URL })),
+  fetchImageAttachment: vi.fn((_url: string, name: string) =>
+    Promise.resolve({ name } as never)
+  ),
 }));
 
-import { dpsCardImage } from '../../lib/nikkesim/client.js';
+import {
+  dpsCardImage,
+  fetchImageAttachment,
+} from '../../lib/nikkesim/client.js';
 import { command } from './dps.js';
 
 /** Minimal interaction double: records the payload passed to editReply. */
@@ -40,12 +47,22 @@ describe('/dps', () => {
     expect(opt?.required).toBeFalsy();
   });
 
-  it('embeds the chart image and attaches only the icon', async () => {
+  it('posts the chart as an attachment, with the embed below it', async () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
     const payload = editReply.mock.calls[0]![0];
-    expect(payload.embeds[0].toJSON().image.url).toBe(CHART_URL);
-    expect(payload.files).toHaveLength(1); // icon thumbnail only
+    const embed = payload.embeds[0].toJSON();
+    // the picture is NOT the embed's — an embed caps it at the embed column
+    expect(embed.image).toBeUndefined();
+    expect(embed.thumbnail).toBeUndefined();
+    expect(embed.author.name).toBe('nikkesim.app');
+    expect(fetchImageAttachment).toHaveBeenCalledWith(
+      CHART_URL,
+      'dps-chart.png'
+    );
+    // card first, then the icon the author line references
+    expect(payload.files).toHaveLength(2);
+    expect(payload.files[0]).toEqual({ name: 'dps-chart.png' });
   });
 
   it('asks for the default cell with no element filter', async () => {

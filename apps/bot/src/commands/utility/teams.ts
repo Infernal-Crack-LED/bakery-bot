@@ -1,6 +1,6 @@
 import { db, userTeams, type UserTeam } from '@app/db';
 import { eq } from 'drizzle-orm';
-import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
+import { brandEmbed, cardReply } from '../../lib/nikkesim/card-reply.js';
 import {
   ActionRowBuilder,
   ComponentType,
@@ -60,10 +60,9 @@ async function teamPageUrl(code: string, discordId: string): Promise<string> {
   return simPageUrl('team', { sharedId, buildCode: code });
 }
 
-/** Icon thumbnail, plus the card itself when it came back as bytes rather
- * than a URL (a build code too long for an embed image URL). */
-const cardFiles = (card: CardImage | null) =>
-  card?.file ? [iconAttachment(), card.file] : [iconAttachment()];
+/** The card as a standalone attachment above the embed — see card-reply.ts. */
+const teamReply = (embed: EmbedBuilder, card: CardImage | null) =>
+  cardReply(embed, card, 'team-card.png');
 
 export const command: Command = {
   data: new SlashCommandBuilder()
@@ -106,20 +105,12 @@ export const command: Command = {
       }
       await interaction.deferReply();
       const card = await teamCard(match.build, match.row.code);
-      const embed = new EmbedBuilder()
-        .setColor(0x5b9dff)
-        .setThumbnail(ICON_URL)
+      const embed = brandEmbed(new EmbedBuilder())
         .setTitle(match.row.name)
         .setDescription(
           `**[Open in Team Sim](${await teamPageUrl(match.row.code, interaction.user.id)})**`
         );
-      if (card) {
-        embed.setImage(card.url);
-      }
-      await interaction.editReply({
-        embeds: [embed],
-        files: cardFiles(card),
-      });
+      await interaction.editReply(await teamReply(embed, card));
       return;
     }
 
@@ -166,21 +157,13 @@ export const command: Command = {
     await selected.update({ content: 'Loading\u2026', components: [] });
 
     const card = await teamCard(picked.build, picked.row.code);
-    const embed = new EmbedBuilder()
-      .setColor(0x5b9dff)
-      .setThumbnail(ICON_URL)
+    const embed = brandEmbed(new EmbedBuilder())
       .setTitle(picked.row.name)
       .setDescription(
         `**[Open in Team Sim](${await teamPageUrl(picked.row.code, interaction.user.id)})**`
       );
-    if (card) {
-      embed.setImage(card.url);
-    }
     // Post the result publicly so the whole channel can see it.
-    await interaction.followUp({
-      embeds: [embed],
-      files: cardFiles(card),
-    });
+    await interaction.followUp(await teamReply(embed, card));
     // Clean up the ephemeral "Loading…" message.
     await interaction.deleteReply().catch(() => null);
   },

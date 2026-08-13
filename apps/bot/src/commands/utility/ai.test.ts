@@ -6,9 +6,16 @@ const CARD_URL = 'https://nikkesim.app/api/v1/img/resources/t9.a1900000.png';
 
 vi.mock('../../lib/nikkesim/client.js', () => ({
   resourcesCardImage: vi.fn(() => Promise.resolve({ url: CARD_URL })),
+  // The card travels as an ATTACHMENT now (card-reply.ts).
+  fetchImageAttachment: vi.fn((_url: string, name: string) =>
+    Promise.resolve({ name } as never)
+  ),
 }));
 
-import { resourcesCardImage } from '../../lib/nikkesim/client.js';
+import {
+  resourcesCardImage,
+  fetchImageAttachment,
+} from '../../lib/nikkesim/client.js';
 import { command } from './ai.js';
 
 function fakeInteraction(tier?: number) {
@@ -36,21 +43,28 @@ describe('/ai', () => {
     expect(opt?.max_value).toBe(9);
   });
 
-  it('replies with a link embed pointing at the nikkesim resources image', async () => {
+  it('posts the card as an attachment, with the link embed below it', async () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
     expect(resourcesCardImage).toHaveBeenCalledWith(undefined);
     expect(editReply).toHaveBeenCalledOnce();
     const payload = editReply.mock.calls[0]![0];
     const embed = payload.embeds[0].toJSON();
-    expect(embed.image.url).toBe(CARD_URL);
+    // the picture is NOT the embed's — an embed caps it at the embed column
+    expect(embed.image).toBeUndefined();
+    expect(embed.thumbnail).toBeUndefined();
+    expect(embed.author.name).toBe('nikkesim.app');
     expect(JSON.stringify(embed)).toContain('nikkesim.app/resources');
-    expect(payload.files).toHaveLength(1); // icon thumbnail only
+    expect(fetchImageAttachment).toHaveBeenCalledWith(
+      CARD_URL,
+      'resources-card.png'
+    );
+    expect(payload.files[0]).toEqual({ name: 'resources-card.png' });
   });
 
   // An uncovered tier falls back to an on-demand render, which is uploaded —
   // that can outlast the 3s initial-response deadline, hence the defer.
-  it('defers before rendering, and uploads a card that has bytes', async () => {
+  it('defers before rendering, and reuses a card that already has bytes', async () => {
     const file = { name: 'resources-card.png' };
     vi.mocked(resourcesCardImage).mockResolvedValueOnce({
       url: 'attachment://resources-card.png',
@@ -60,10 +74,9 @@ describe('/ai', () => {
     await command.execute(interaction as never);
     expect(deferReply).toHaveBeenCalledOnce();
     const payload = editReply.mock.calls[0]![0];
-    expect(payload.embeds[0].toJSON().image.url).toBe(
-      'attachment://resources-card.png'
-    );
-    expect(payload.files).toEqual([expect.anything(), file]);
+    expect(payload.embeds[0].toJSON().image).toBeUndefined();
+    // card first, then the icon the embed's author line references
+    expect(payload.files).toEqual([file, expect.anything()]);
   });
 
   it('passes the tier option through when given', async () => {
