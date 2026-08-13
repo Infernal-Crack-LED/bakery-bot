@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// /dps only ever asks for a headline cell, which is pre-rendered — so the card
+// comes back as a URL Discord's proxy already holds, with nothing to upload.
 const CHART_URL =
-  'https://www.nikkesim.app/api/v1/img/dps/solo.eleweak.c100.8of12.all.aaa11111.png';
+  'https://nikkesim.app/api/v1/img/dps/solo.eleweak.c100.8of12.all.aaa11111.png';
 
 vi.mock('../../lib/nikkesim/client.js', () => ({
   DEFAULT_DPS_CELL: 'solo.eleweak.c100.8of12',
   NEUTRAL_DPS_CELL: 'solo.neutral.c100.8of12',
-  dpsImageUrl: vi.fn(() => Promise.resolve(CHART_URL)),
+  dpsCardImage: vi.fn(() => Promise.resolve({ url: CHART_URL })),
 }));
 
-import { dpsImageUrl } from '../../lib/nikkesim/client.js';
+import { dpsCardImage } from '../../lib/nikkesim/client.js';
 import { command } from './dps.js';
 
 /** Minimal interaction double: records the payload passed to editReply. */
@@ -27,7 +29,7 @@ function fakeInteraction(element?: string) {
 
 describe('/dps', () => {
   beforeEach(() => {
-    vi.mocked(dpsImageUrl).mockClear();
+    vi.mocked(dpsCardImage).mockClear();
   });
 
   it('builds a command named "dps" with an optional element choice', () => {
@@ -49,7 +51,7 @@ describe('/dps', () => {
   it('asks for the default cell with no element filter', async () => {
     const { interaction } = fakeInteraction();
     await command.execute(interaction as never);
-    expect(dpsImageUrl).toHaveBeenCalledWith({
+    expect(dpsCardImage).toHaveBeenCalledWith({
       cell: 'solo.eleweak.c100.8of12',
       element: undefined,
     });
@@ -58,7 +60,7 @@ describe('/dps', () => {
   it('treats "neutral" as a cell, not an element filter', async () => {
     const { interaction } = fakeInteraction('neutral');
     await command.execute(interaction as never);
-    expect(dpsImageUrl).toHaveBeenCalledWith({
+    expect(dpsCardImage).toHaveBeenCalledWith({
       cell: 'solo.neutral.c100.8of12',
       element: undefined,
     });
@@ -67,14 +69,14 @@ describe('/dps', () => {
   it('passes a real element through as a filter on the default cell', async () => {
     const { interaction } = fakeInteraction('fire');
     await command.execute(interaction as never);
-    expect(dpsImageUrl).toHaveBeenCalledWith({
+    expect(dpsCardImage).toHaveBeenCalledWith({
       cell: 'solo.eleweak.c100.8of12',
       element: 'fire',
     });
   });
 
   it('replies with an error message when the image API is unreachable', async () => {
-    vi.mocked(dpsImageUrl).mockRejectedValueOnce(new Error('down'));
+    vi.mocked(dpsCardImage).mockRejectedValueOnce(new Error('down'));
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
     expect(editReply.mock.calls[0]![0]).toContain('nikkesim.app');

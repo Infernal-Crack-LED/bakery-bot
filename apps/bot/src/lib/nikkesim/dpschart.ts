@@ -27,7 +27,10 @@ export interface DpsChartJson {
   meta: {
     frameworks: { id: string; label: string }[];
     eleadvs: { id: string; label: string }[];
-    cores: { id: string; label: string; rate: number }[];
+    // `exposure` = share of the fight the boss core is available to hit, NOT the share
+    // of shots that hit it (renamed from `rate` upstream 2026-08-02; nothing here reads
+    // the field, it is declared for shape completeness).
+    cores: { id: string; label: string; exposure: number }[];
     invests: { id: string; label: string }[];
     headliners: unknown[];
   };

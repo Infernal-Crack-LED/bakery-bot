@@ -1,6 +1,7 @@
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
 import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
+import { dollCardImage, type CardImage } from '../../lib/nikkesim/client.js';
 
 /**
  * /doll — doll-leveling FAQ from nikkesim.app/doll.
@@ -28,6 +29,21 @@ export const command: Command = {
     .setName('doll')
     .setDescription('Doll-leveling FAQ from nikkesim.app.'),
   execute: async (interaction) => {
+    // Deferred because a manifest miss falls back to an on-demand render whose
+    // bytes we then upload, which can outlast the 3s Discord gives an initial
+    // response.
+    await interaction.deferReply();
+
+    // The per-phase feeding chart, from nikkesim.app's own /doll default view.
+    // Optional: the FAQ is the command's substance and still stands alone, so a
+    // render failure loses the picture, not the answer.
+    let card: CardImage | null = null;
+    try {
+      card = await dollCardImage();
+    } catch (err) {
+      console.warn('[doll] chart unavailable, posting the FAQ alone:', err);
+    }
+
     const embed = new EmbedBuilder()
       .setColor(0xf472b6)
       .setThumbnail(ICON_URL)
@@ -39,7 +55,13 @@ export const command: Command = {
         name: 'Link',
         value: '**[NIKKE Sim — Doll Leveling](https://www.nikkesim.app/doll)**',
       });
+    if (card) {
+      embed.setImage(card.url);
+    }
 
-    await interaction.reply({ embeds: [embed], files: [iconAttachment()] });
+    await interaction.editReply({
+      embeds: [embed],
+      files: [iconAttachment(), ...(card?.file ? [card.file] : [])],
+    });
   },
 };

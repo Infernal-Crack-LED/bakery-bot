@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const TABLE_URL =
-  'https://www.nikkesim.app/api/v1/img/table/max-ammo.png?unit=alice';
+// Per-unit tables are rendered on demand, so the client uploads the PNG rather
+// than handing Discord a URL it would fetch after the message posted.
+const CARD = {
+  url: 'attachment://max-ammo-table.png',
+  file: { name: 'max-ammo-table.png' },
+};
 
 // One synced character; findCharacter's first lookup (by id) returns it.
 const CHARACTER = {
@@ -21,10 +25,10 @@ vi.mock('@app/db', () => ({
 }));
 
 vi.mock('../../lib/nikkesim/client.js', () => ({
-  tableImageUrl: vi.fn(() => Promise.resolve(TABLE_URL)),
+  tableCardImage: vi.fn(() => Promise.resolve(CARD)),
 }));
 
-import { tableImageUrl } from '../../lib/nikkesim/client.js';
+import { tableCardImage } from '../../lib/nikkesim/client.js';
 import { command } from './max-ammo.js';
 
 function fakeInteraction() {
@@ -42,8 +46,8 @@ function fakeInteraction() {
 describe('/max-ammo', () => {
   beforeEach(() => {
     findFirst.mockResolvedValue(CHARACTER);
-    vi.mocked(tableImageUrl).mockClear();
-    vi.mocked(tableImageUrl).mockResolvedValue(TABLE_URL);
+    vi.mocked(tableCardImage).mockClear();
+    vi.mocked(tableCardImage).mockResolvedValue(CARD);
   });
 
   it('builds a command named "max-ammo" with a required character', () => {
@@ -57,17 +61,18 @@ describe('/max-ammo', () => {
   it('embeds the table image, keyed by the DB id as the nikkesim slug', async () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
-    expect(tableImageUrl).toHaveBeenCalledWith('max-ammo', { unit: 'alice' });
+    expect(tableCardImage).toHaveBeenCalledWith('max-ammo', { unit: 'alice' });
     const payload = editReply.mock.calls[0]![0];
-    expect(payload.embeds[0].toJSON().image.url).toBe(TABLE_URL);
-    expect(payload.files).toHaveLength(1); // icon thumbnail only
+    expect(payload.embeds[0].toJSON().image.url).toBe(CARD.url);
+    // Icon thumbnail + the card itself, so the reply lands complete.
+    expect(payload.files).toEqual([expect.anything(), CARD.file]);
   });
 
   // The bot syncs nikkeCharacters daily from blablalink while nikke-sim's unit
   // set is fixed at its last deploy, so a freshly-released NIKKE is known here
   // and unknown there. Without this the user got a blank image and no reason.
   it('explains itself when nikke-sim does not know the unit', async () => {
-    vi.mocked(tableImageUrl).mockRejectedValueOnce(
+    vi.mocked(tableCardImage).mockRejectedValueOnce(
       new Error("unknown unit 'anne-miracle-fairy'")
     );
     const { interaction, editReply } = fakeInteraction();
@@ -80,7 +85,7 @@ describe('/max-ammo', () => {
   });
 
   it('still reports a reason when the API failure carries no message', async () => {
-    vi.mocked(tableImageUrl).mockRejectedValueOnce('boom');
+    vi.mocked(tableCardImage).mockRejectedValueOnce('boom');
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
     expect(editReply.mock.calls[0]![0]).toContain(
@@ -96,7 +101,7 @@ describe('/max-ammo', () => {
     });
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
-    expect(tableImageUrl).not.toHaveBeenCalled();
+    expect(tableCardImage).not.toHaveBeenCalled();
     expect(editReply.mock.calls[0]![0].content).toContain('no ammo data');
   });
 });

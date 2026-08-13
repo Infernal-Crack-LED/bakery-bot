@@ -1,38 +1,32 @@
 /**
- * URL-only client for nikkesim.app's infographic image API (/api/v1/img/*).
- * The bot no longer renders NIKKE infographics itself — nikke-sim owns the
- * renderers and publishes every card as a PNG; we only build URLs and hand
- * them to Discord via `embed.setImage(url)`.
+ * Client for nikkesim.app's infographic image API (/api/v1/img/*). The bot no
+ * longer renders NIKKE infographics itself — nikke-sim owns the renderers and
+ * publishes every card as a PNG; we either hand Discord a URL or upload the
+ * bytes with the message.
  *
- * DISCORD-CACHING CONTRACT (load-bearing — read before changing anything):
- * Discord caches embed images by URL indefinitely. Every URL handed to
- * Discord MUST therefore be content-versioned, or a stale card could be
- * pinned in a server forever. This client only ever emits two kinds of URL,
- * both safe:
+ * URL vs ATTACHMENT (why the two paths exist — read before changing anything):
+ * a URL in `embed.setImage(url)` is fetched by Discord's image proxy AFTER the
+ * message is posted, so the message lands first and the picture "pops in"
+ * seconds later — unless the proxy already holds that exact URL.
  *
- *   1. Manifest URLs — `/api/v1/img/<key>.<hash>.png` for the pre-rendered
- *      set (unit cards, rank boards, headline DPS charts, the static OL and
- *      generic charge-speed tables). The content hash is IN the filename, so
- *      any re-render produces a new URL. We resolve these through the
- *      manifest (see getManifest) rather than guessing filenames.
- *   2. Dynamic URLs — `/api/v1/img/{dps,team,roster,table/...}.png?...`,
- *      which are mutable BUT answer 302 to an immutable, content-addressed
- *      `/api/v1/img/cache/<type>.<hash>.png`. Discord follows the redirect
- *      when it fetches the embed image and caches the resolved bytes against
- *      the URL we posted; it does NOT re-fetch later, so each message pins
- *      the content that was current when it was posted. That is what makes
- *      the mutable URL safe to hand out — not that Discord keeps up with
- *      re-renders (it doesn't).
+ *   1. Manifest URLs — `/api/v1/img/<key>.<hash>.png` for the pre-rendered set
+ *      (unit cards, rank boards, headline DPS charts, the static OL and generic
+ *      charge-speed tables). Handed over as URLs: the set is small, stable and
+ *      posted constantly, so Discord's proxy is warm and these DO appear
+ *      instantly. The content hash is in the filename, so a re-render mints a
+ *      new URL and Discord's indefinite URL-keyed cache can't pin a stale card.
+ *   2. Dynamic cards — per-unit tables, windowed/comparison DPS charts, team
+ *      and roster build cards. Every one of these is a URL Discord's proxy has
+ *      likely never seen, so it always pops in. These are UPLOADED instead
+ *      (see dynamicCard): the PNG travels in the message payload and is on
+ *      screen the moment the reply appears. Costs ~100–300 KB per invocation,
+ *      which is the price of the reply being complete when it lands.
  *
- * Anything that must NOT change under a fixed URL (e.g. a future
- * account-identifying card Discord may cache aggressively) should use
- * fetchImageAttachment() instead of a URL reference.
- *
- * VERIFICATION: a URL that 4xx's renders in Discord as a silently absent
- * image — no error, no trace. So every dynamic URL this module hands out is
- * checked first (see verifyImageUrl); builders reject rather than return a
- * URL that will render as a blank card. Manifest URLs skip the check: the
- * manifest is the API's own assertion that the file exists.
+ * VERIFICATION: a URL that 4xx's renders in Discord as a silently absent image
+ * — no error, no trace. So every dynamic request is resolved first (see
+ * verifyImageUrl), which both surfaces the API's user-grade error message and
+ * forces the render before we go after the bytes. Manifest URLs skip the
+ * check: the manifest is the API's own assertion that the file exists.
  */
 
 import { AttachmentBuilder } from 'discord.js';
@@ -40,9 +34,14 @@ import { AttachmentBuilder } from 'discord.js';
 /** Base URL of the nikke-sim deployment (no trailing slash). Optional env
  * override, following the config.ts optional-var pattern (`?? default`) —
  * read here instead of via config.ts because config.ts's REQUIRED vars throw
- * at import time, which would break unit tests that import command modules. */
+ * at import time, which would break unit tests that import command modules.
+ *
+ * APEX, not `www` — `www.nikkesim.app` answers every request with a 301 to the
+ * apex host. That is not just a wasted hop: verifyImageUrl reads redirects
+ * itself, so a `www` base made EVERY dynamic URL "verify" against the 301 and
+ * never reach the app — no render was triggered and no 4xx was ever seen. */
 export const NIKKESIM_BASE_URL = (
-  process.env.NIKKESIM_BASE_URL ?? 'https://www.nikkesim.app'
+  process.env.NIKKESIM_BASE_URL ?? 'https://nikkesim.app'
 ).replace(/\/+$/, '');
 
 const API_PREFIX = '/api/v1/img/';
@@ -150,27 +149,70 @@ async function manifestImageUrl(key: string): Promise<string | null> {
 
 // ---- verification -----------------------------------------------------------
 
+/** A redirect chain longer than this is a misconfiguration, not a route. */
+const MAX_REDIRECTS = 4;
+
 /**
- * Check that a dynamic image URL actually renders, and return it unchanged.
+ * Drive a dynamic image request to completion and return the IMMUTABLE,
+ * content-addressed URL it resolves to (`/api/v1/img/cache/<type>.<hash>.png`).
  *
- * Cheap: the API answers a renderable request with a bodiless 302 to its
- * content-addressed cache entry, so with `redirect: 'manual'` a success costs
- * headers only — we never download the PNG. A rejected request answers 4xx
- * with a short, already user-grade message ("unknown unit 'anne-miracle-fairy'",
- * "Rapi (AR) is not a charge weapon", "invalid build code"), which becomes the
- * thrown Error's message so commands can show it verbatim.
+ * Cheap: the API answers a renderable request with a bodiless 302 to that cache
+ * entry, so a success costs headers only — we stop at the redirect and never
+ * download the PNG here. A rejected request answers 4xx with a short, already
+ * user-grade message ("unknown unit 'anne-miracle-fairy'", "Rapi (AR) is not a
+ * charge weapon", "invalid build code"), which becomes the thrown Error's
+ * message so commands can show it verbatim.
  *
  * This exists because the bot and nikke-sim drift: nikkeCharacters syncs from
  * blablalink daily, while nikke-sim's unit set is fixed at its last deploy, so
  * a freshly-released NIKKE is routinely known here and unknown there.
+ *
+ * Redirects are followed MANUALLY rather than by `redirect: 'follow'` so the
+ * render-complete 302 is a stopping point instead of a body download — but that
+ * means any OTHER redirect in front of the app (host canonicalisation, a future
+ * path move) has to be followed too, or it reads as a success that never
+ * reached the app. That was live: the `www` host 301s, so every dynamic URL
+ * "verified" against the redirect itself.
  */
 export async function verifyImageUrl(url: string): Promise<string> {
-  const res = await fetch(url, { redirect: 'manual' });
-  if (res.status >= 200 && res.status < 400) {
-    return url;
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const res = await fetch(current, { redirect: 'manual' });
+    const location =
+      res.status >= 300 && res.status < 400
+        ? res.headers.get('location')
+        : null;
+    if (location) {
+      current = new URL(location, current).toString();
+      // The content-addressed cache entry IS the render's success signal:
+      // reaching it means the PNG is on disk. Anything else (a host 301) is
+      // plumbing to keep following.
+      if (current.includes(`${API_PREFIX}cache/`)) {
+        return current;
+      }
+      continue;
+    }
+    if (res.status >= 200 && res.status < 300) {
+      return current;
+    }
+    const detail = (await res.text().catch(() => '')).trim();
+    throw new Error(detail || `nikkesim.app returned ${res.status}`);
   }
-  const detail = (await res.text().catch(() => '')).trim();
-  throw new Error(detail || `nikkesim.app returned ${res.status}`);
+  throw new Error(`too many redirects from nikkesim.app for ${url}`);
+}
+
+/**
+ * Resolve a dynamic card and bring its bytes back as an upload, so the picture
+ * is part of the message instead of something Discord fetches afterwards.
+ *
+ * Two requests, both cheap: verifyImageUrl forces the render and yields the
+ * immutable cache URL (which is a Cloudflare edge hit), then we pull the PNG
+ * from it. Errors come from the first call, so a bad request still rejects with
+ * the API's own wording rather than a generic fetch failure.
+ */
+async function dynamicCard(url: string, name: string): Promise<CardImage> {
+  const file = await fetchImageAttachment(await verifyImageUrl(url), name);
+  return { url: `attachment://${name}`, file };
 }
 
 // ---- URL builders -----------------------------------------------------------
@@ -219,14 +261,37 @@ export async function dpsImageUrl(opts: DpsImageOptions = {}): Promise<string> {
   return verifyImageUrl(`${NIKKESIM_BASE_URL}${API_PREFIX}dps.png?${params}`);
 }
 
+/**
+ * A resolved image URL is dynamic exactly when it points at the render cache —
+ * that is where and only where verifyImageUrl lands a request the server had to
+ * render. Manifest URLs never go through it, so this is the seam between "post
+ * a URL Discord's proxy already knows" and "upload the bytes".
+ */
+const isDynamic = (url: string): boolean => url.includes(`${API_PREFIX}cache/`);
+
+/** DPS chart as something an embed can carry — see dpsImageUrl for which
+ * requests are pre-rendered and which are rendered on demand. */
+export async function dpsCardImage(
+  opts: DpsImageOptions = {}
+): Promise<CardImage> {
+  const url = await dpsImageUrl(opts);
+  return isDynamic(url) ? dynamicCard(url, 'dps-chart.png') : { url };
+}
+
 export type TableKind = 'ol' | 'charge-speed' | 'max-ammo';
 
 /**
- * Table card image URL. Both static tables resolve through the manifest; the
- * two differ in what happens when that misses, because the API is asymmetric:
- * there is no dynamic `table/ol.png` route (it 404s), so OL has nowhere to
- * fall back to and throws, while generic charge-speed falls back to its
- * dynamic route. Per-unit tables always use the dynamic routes.
+ * Table card image URL. Every table is pre-rendered — the two static ones plus
+ * one per unit (`table/<kind>.<slug>`) — so the normal answer is a manifest URL
+ * Discord's proxy can already be holding.
+ *
+ * What happens on a manifest MISS differs by table, because the API is
+ * asymmetric: there is no dynamic `table/ol.png` route (it 404s), so OL has
+ * nowhere to fall back to and throws, while charge-speed and max-ammo fall back
+ * to their dynamic routes. A per-unit miss is expected rather than exceptional —
+ * the pre-rendered set is frozen at nikke-sim's last deploy while the bot's unit
+ * list syncs daily, so a freshly-released NIKKE has no card yet and renders on
+ * demand until the next deploy.
  */
 export async function tableImageUrl(
   table: TableKind,
@@ -239,36 +304,62 @@ export async function tableImageUrl(
     }
     return url;
   }
-  if (table === 'charge-speed' && !opts.unit) {
-    try {
-      const url = await manifestImageUrl('table/charge-speed');
-      if (url) {
-        return url;
-      }
-    } catch {
-      // fall through to the dynamic generic table
-    }
-    return verifyImageUrl(
-      `${NIKKESIM_BASE_URL}${API_PREFIX}table/charge-speed.png`
-    );
-  }
   if (table === 'max-ammo' && !opts.unit) {
     throw new Error('max-ammo requires a unit');
   }
-  const params = new URLSearchParams({ unit: opts.unit! });
+  try {
+    // 'table/charge-speed' (generic) and 'table/<kind>.<slug>' (per-unit).
+    const url = await manifestImageUrl(
+      opts.unit ? `table/${table}.${opts.unit}` : `table/${table}`
+    );
+    if (url) {
+      return url;
+    }
+  } catch {
+    // Manifest unavailable — fall through to the dynamic route, which renders
+    // the same table on demand.
+  }
+  const params = new URLSearchParams(opts.unit ? { unit: opts.unit } : {});
+  const qs = params.toString();
   return verifyImageUrl(
-    `${NIKKESIM_BASE_URL}${API_PREFIX}table/${table}.png?${params}`
+    `${NIKKESIM_BASE_URL}${API_PREFIX}table/${table}.png${qs ? `?${qs}` : ''}`
   );
 }
+
+/** Table card as something an embed can carry — see tableImageUrl for which
+ * requests are pre-rendered and which are rendered on demand. */
+export async function tableCardImage(
+  table: TableKind,
+  opts: { unit?: string } = {}
+): Promise<CardImage> {
+  const url = await tableImageUrl(table, opts);
+  return isDynamic(url) ? dynamicCard(url, `${table}-table.png`) : { url };
+}
+
+// ---- resource calculator ----------------------------------------------------
+
+/** What nikke-sim renders for a tier-less resources request (its
+ * DEFAULT_RESOURCES_TIER). Mirrored here only to name the manifest key an
+ * omitted tier maps onto — the API still owns the default. */
+const DEFAULT_AI_TIER = 9;
 
 /**
  * Resource Calculator infographic (/ai — Anomaly Interception): daily custom
  * module / T9 gear / fragment income for BOTH boss families (Kraken, then
- * other bosses), stacked, at the given tier. Always the dynamic route — every
- * tier is its own render, so there is no manifest entry to resolve first
- * (unlike the static OL table or the generic charge-speed table).
+ * other bosses), stacked, at the given tier. One image per tier, and there are
+ * only nine, so the whole set is pre-rendered; the dynamic route is the
+ * fallback for a manifest miss or outage.
  */
-export function resourcesImageUrl(tier?: number): Promise<string> {
+export async function resourcesImageUrl(tier?: number): Promise<string> {
+  try {
+    const url = await manifestImageUrl(`resources/t${tier ?? DEFAULT_AI_TIER}`);
+    if (url) {
+      return url;
+    }
+  } catch {
+    // Manifest unavailable — fall through to the dynamic route, which renders
+    // the same card on demand.
+  }
   const params = new URLSearchParams();
   if (tier !== undefined) {
     params.set('tier', String(tier));
@@ -277,6 +368,54 @@ export function resourcesImageUrl(tier?: number): Promise<string> {
   return verifyImageUrl(
     `${NIKKESIM_BASE_URL}${API_PREFIX}resources.png${qs ? `?${qs}` : ''}`
   );
+}
+
+/** Resource-calculator card as something an embed can carry. */
+export async function resourcesCardImage(tier?: number): Promise<CardImage> {
+  const url = await resourcesImageUrl(tier);
+  return isDynamic(url) ? dynamicCard(url, 'resources-card.png') : { url };
+}
+
+// ---- doll leveling ----------------------------------------------------------
+
+export type DollRarity = 'R' | 'SR';
+
+/** The plan /doll shows: an SR doll levelled from the bottom, which is the
+ * /doll page's own default view. */
+const DEFAULT_DOLL_RARITY: DollRarity = 'SR';
+const DEFAULT_DOLL_FROM = 0;
+
+/**
+ * Doll Leveling card — which kit tier to feed at each phase, plus the expected
+ * kit cost to finish.
+ *
+ * Only the full journey (from phase 0) is pre-rendered, one card per rarity;
+ * nikke-sim renders any other starting phase on demand.
+ */
+export async function dollImageUrl(
+  rarity: DollRarity = DEFAULT_DOLL_RARITY,
+  from: number = DEFAULT_DOLL_FROM
+): Promise<string> {
+  try {
+    const url = await manifestImageUrl(`doll/${rarity.toLowerCase()}.${from}`);
+    if (url) {
+      return url;
+    }
+  } catch {
+    // Manifest unavailable — fall through to the dynamic route, which renders
+    // the same card on demand.
+  }
+  const params = new URLSearchParams({ rarity, from: String(from) });
+  return verifyImageUrl(`${NIKKESIM_BASE_URL}${API_PREFIX}doll.png?${params}`);
+}
+
+/** Doll Leveling card as something an embed can carry. */
+export async function dollCardImage(
+  rarity?: DollRarity,
+  from?: number
+): Promise<CardImage> {
+  const url = await dollImageUrl(rarity, from);
+  return isDynamic(url) ? dynamicCard(url, 'doll-card.png') : { url };
 }
 
 // ---- unit cards -------------------------------------------------------------
@@ -330,15 +469,6 @@ export async function isNotSimSupported(slug: string): Promise<boolean> {
 
 // ---- build-code cards (team / roster) ---------------------------------------
 
-/**
- * Discord rejects an embed image URL longer than this outright:
- *   DiscordAPIError[50035] embeds[0].image.url[BASE_TYPE_MAX_LENGTH]
- * Build codes are unbounded — they carry the whole team + per-slot loadout,
- * and a roster code carries a 5×5 grid on top — so a populated /roster lands
- * around 3.3 KB, well past the limit.
- */
-const EMBED_IMAGE_URL_MAX = 2048;
-
 /** How a card gets into an embed: either a URL Discord fetches itself, or
  * bytes we upload alongside the message. `url` is what setImage() takes. */
 export interface CardImage {
@@ -350,23 +480,21 @@ export interface CardImage {
 /**
  * Resolve a build-code card to something an embed can actually carry.
  *
- * Short URLs go to Discord as URLs (cheap: one verification probe, no bytes
- * through us). Over the embed limit we fetch the PNG and upload it instead —
- * the same picture, at the cost of the bytes, which beats the alternative of
- * a 50035 that loses the whole reply. The fetch doubles as the verification,
- * so an undecodable code still rejects with the API's message.
+ * Always uploaded. A build code describes one person's team, so its URL is one
+ * Discord's proxy has never seen and would fetch only after the message posted;
+ * uploading puts the card on screen with the reply. It also sidesteps
+ * DiscordAPIError[50035] embeds[0].image.url[BASE_TYPE_MAX_LENGTH] — build
+ * codes are unbounded (a populated /roster code lands around 3.3 KB, past the
+ * 2048-char embed URL limit), which used to need a length branch here.
  */
-async function buildCodeCard(
+function buildCodeCard(
   kind: 'team' | 'roster',
   buildCode: string
 ): Promise<CardImage> {
-  const url = `${NIKKESIM_BASE_URL}${API_PREFIX}${kind}.png?b=${encodeURIComponent(buildCode)}`;
-  if (url.length <= EMBED_IMAGE_URL_MAX) {
-    return { url: await verifyImageUrl(url) };
-  }
-  const name = `${kind}-card.png`;
-  const file = await fetchImageAttachment(url, name);
-  return { url: `attachment://${name}`, file };
+  return dynamicCard(
+    `${NIKKESIM_BASE_URL}${API_PREFIX}${kind}.png?b=${encodeURIComponent(buildCode)}`,
+    `${kind}-card.png`
+  );
 }
 
 /** Team card for a saved share build code. Rejects with the API's message
@@ -386,17 +514,18 @@ export function rosterCardImage(buildCode: string): Promise<CardImage> {
  * sim's stored results, so the card draws real damage instead of the zeros a
  * bare build code renders (see lib/nikkesim/shared-config.ts).
  *
- * Always a URL: an id is a uuid, so this can't approach the embed URL limit the
- * build-code path has to work around.
+ * Uploaded, like every other per-user card: the id is unique to one saved
+ * config, so there is no chance Discord's proxy already holds it.
  *
  * Rejects when the id no longer resolves — `sim-share` rows are evictable, so a
  * 404 here is expected rather than exceptional, and the caller falls back to
  * the build code.
  */
 export function rosterCardImageById(id: string): Promise<CardImage> {
-  return verifyImageUrl(
-    `${NIKKESIM_BASE_URL}${API_PREFIX}roster.png?id=${encodeURIComponent(id)}`
-  ).then((url) => ({ url }));
+  return dynamicCard(
+    `${NIKKESIM_BASE_URL}${API_PREFIX}roster.png?id=${encodeURIComponent(id)}`,
+    'roster-card.png'
+  );
 }
 
 // ---- attachment path --------------------------------------------------------
