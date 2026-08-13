@@ -78,8 +78,10 @@ export async function cardReply(
     try {
       files.push(await cardAttachment(card, name));
     } catch (err) {
+      // "unavailable", not "upload failed": what threw is the server-side GET
+      // in fetchImageAttachment — the upload has not been attempted yet.
       console.warn(
-        `[nikkesim] ${name}: upload failed, embedding the url:`,
+        `[nikkesim] ${name}: card bytes unavailable, embedding the url:`,
         err
       );
       embed.setImage(card.url);
