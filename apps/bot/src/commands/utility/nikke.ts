@@ -1,5 +1,5 @@
 import { db, nikkeCharacters, type NikkeCharacter } from '@app/db';
-import { asc, eq, ilike } from 'drizzle-orm';
+import { eq, ilike } from 'drizzle-orm';
 import {
   AttachmentBuilder,
   EmbedBuilder,
@@ -22,6 +22,7 @@ import {
   lookupRank,
   relScore,
 } from '../../lib/nikkesim/dpschart.js';
+import { respondNikkeNameAutocomplete } from '../../lib/nikke/nameCache.js';
 
 /**
  * /nikke <name> — look up a character's Prydwen tiers, Nikke Synergy arena
@@ -237,44 +238,7 @@ export const command: Command = {
         .setRequired(true)
         .setAutocomplete(true)
     ),
-  autocomplete: async (interaction) => {
-    const focused = interaction.options
-      .getFocused()
-      .toString()
-      .trim()
-      .toLowerCase();
-    // Match names AND nicknames/aliases (e.g. "rr" → Rapi: Red Hood via "rrh"),
-    // so filter in memory over the small character set.
-    const rows = await db.query.nikkeCharacters.findMany({
-      columns: { id: true, name: true, aliases: true },
-      orderBy: asc(nikkeCharacters.name),
-    });
-    const score = (r: (typeof rows)[number]): number => {
-      if (!focused) {
-        return 2;
-      }
-      const name = r.name.toLowerCase();
-      const aliases = r.aliases ?? [];
-      if (
-        name.startsWith(focused) ||
-        aliases.some((a) => a.startsWith(focused))
-      ) {
-        return 0;
-      }
-      if (name.includes(focused) || aliases.some((a) => a.includes(focused))) {
-        return 1;
-      }
-      return -1; // no match
-    };
-    const matches = rows
-      .map((r) => ({ r, s: score(r) }))
-      .filter((m) => m.s >= 0)
-      .sort((a, b) => a.s - b.s || a.r.name.localeCompare(b.r.name))
-      .slice(0, 25);
-    await interaction.respond(
-      matches.map((m) => ({ name: m.r.name.slice(0, 100), value: m.r.id }))
-    );
-  },
+  autocomplete: respondNikkeNameAutocomplete,
   execute: async (interaction) => {
     const query = interaction.options.getString('name', true);
     const character = await findCharacter(query);

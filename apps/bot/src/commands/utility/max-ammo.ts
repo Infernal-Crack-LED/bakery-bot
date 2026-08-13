@@ -1,9 +1,10 @@
 import { db, nikkeCharacters } from '@app/db';
-import { asc, eq, ilike } from 'drizzle-orm';
+import { eq, ilike } from 'drizzle-orm';
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
 import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
 import { tableCardImage, type CardImage } from '../../lib/nikkesim/client.js';
+import { respondNikkeNameAutocomplete } from '../../lib/nikke/nameCache.js';
 
 async function findCharacter(query: string) {
   const direct =
@@ -35,42 +36,7 @@ export const command: Command = {
         .setRequired(true)
         .setAutocomplete(true)
     ),
-  autocomplete: async (interaction) => {
-    const focused = interaction.options
-      .getFocused()
-      .toString()
-      .trim()
-      .toLowerCase();
-    const rows = await db.query.nikkeCharacters.findMany({
-      columns: { id: true, name: true, aliases: true },
-      orderBy: asc(nikkeCharacters.name),
-    });
-    const score = (r: (typeof rows)[number]): number => {
-      if (!focused) {
-        return 2;
-      }
-      const name = r.name.toLowerCase();
-      const aliases = r.aliases ?? [];
-      if (
-        name.startsWith(focused) ||
-        aliases.some((a) => a.startsWith(focused))
-      ) {
-        return 0;
-      }
-      if (name.includes(focused) || aliases.some((a) => a.includes(focused))) {
-        return 1;
-      }
-      return -1;
-    };
-    const matches = rows
-      .map((r) => ({ r, s: score(r) }))
-      .filter((m) => m.s >= 0)
-      .sort((a, b) => a.s - b.s || a.r.name.localeCompare(b.r.name))
-      .slice(0, 25);
-    await interaction.respond(
-      matches.map((m) => ({ name: m.r.name.slice(0, 100), value: m.r.id }))
-    );
-  },
+  autocomplete: respondNikkeNameAutocomplete,
   execute: async (interaction) => {
     const query = interaction.options.getString('character', true);
     await interaction.deferReply();
