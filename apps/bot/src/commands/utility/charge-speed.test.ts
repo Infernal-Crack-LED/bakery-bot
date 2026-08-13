@@ -85,7 +85,9 @@ describe('/charge-speed', () => {
     // the picture is NOT the embed's — an embed caps it at the embed column
     expect(embed.image).toBeUndefined();
     expect(embed.thumbnail).toBeUndefined();
-    expect(embed.author.name).toBe('nikkesim.app');
+    expect(embed.author.name).toBe('Full calculator on nikkesim.app');
+    expect(embed.author.url).toBe('https://www.nikkesim.app/charge');
+    expect(embed.description).toContain('unit-specific breakpoints');
     expect(payload.files[0]).toEqual({ name: 'charge-speed-table.png' });
   });
 

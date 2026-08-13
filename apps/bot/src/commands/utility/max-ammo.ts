@@ -79,11 +79,10 @@ export const command: Command = {
       );
       return;
     }
-    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR)
-      .setTitle(`Max Ammo \u2014 ${character.name}`)
-      .setDescription(
-        '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
-      );
+    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR, {
+      name: 'Full calculator on nikkesim.app',
+      url: 'https://www.nikkesim.app/charge',
+    });
     await interaction.editReply(
       await cardReply(embed, card, 'max-ammo-table.png')
     );

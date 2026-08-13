@@ -103,10 +103,10 @@ describe('/teams', () => {
   it('links to the Sim tab carrying the build code', async () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
-    const desc = editReply.mock.calls[0]![0].embeds[0].toJSON().description;
-    expect(desc).toContain('Open in Team Sim');
-    expect(desc).toContain(`${SITE}/?b=${encodeURIComponent(TEAM_CODE)}`);
-    expect(desc).not.toContain('teambuilder');
+    const author = editReply.mock.calls[0]![0].embeds[0].toJSON().author;
+    expect(author.name).toBe('Open on nikkesim.app');
+    expect(author.url).toBe(`${SITE}/?b=${encodeURIComponent(TEAM_CODE)}`);
+    expect(author.url).not.toContain('teambuilder');
   });
 
   // A share carries the sim's numbers too, so it wins over the raw build code.
@@ -115,9 +115,9 @@ describe('/teams', () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
     expect(findSharedResultsId).toHaveBeenCalledWith('u1', 'team', TEAM_CODE);
-    const desc = editReply.mock.calls[0]![0].embeds[0].toJSON().description;
-    expect(desc).toContain(`${SITE}/?id=cfg-1`);
-    expect(desc).not.toContain('?b=');
+    const author = editReply.mock.calls[0]![0].embeds[0].toJSON().author;
+    expect(author.url).toBe(`${SITE}/?id=cfg-1`);
+    expect(author.url).not.toContain('?b=');
   });
 
   it('builds a command named "teams" with an optional name option', () => {
@@ -137,8 +137,8 @@ describe('/teams', () => {
     // the picture is NOT the embed's — an embed caps it at the embed column
     expect(embed.image).toBeUndefined();
     expect(embed.thumbnail).toBeUndefined();
-    expect(embed.author.name).toBe('nikkesim.app');
-    expect(embed.title).toBe('Main');
+    expect(embed.author.name).toBe('Open on nikkesim.app');
+    expect(embed.title).toBeUndefined();
     expect(fetchImageAttachment).toHaveBeenCalledWith(
       CARD_URL,
       'team-card.png'
@@ -157,8 +157,8 @@ describe('/teams', () => {
     await command.execute(interaction as never);
     const embed = editReply.mock.calls[0]![0].embeds[0].toJSON();
     expect(embed.image).toBeUndefined();
-    expect(embed.title).toBe('Main');
-    expect(embed.description).toContain('Open in Team Sim');
+    expect(embed.title).toBeUndefined();
+    expect(embed.author.name).toBe('Open on nikkesim.app');
     expect(warn).toHaveBeenCalled(); // the failure leaves a trace in the logs
     warn.mockRestore();
   });
