@@ -1,6 +1,10 @@
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
-import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
+import {
+  brandEmbed,
+  cardReply,
+  BOT_COLOR,
+} from '../../lib/nikkesim/card-reply.js';
 import { dollCardImage, type CardImage } from '../../lib/nikkesim/client.js';
 
 /**
@@ -44,9 +48,7 @@ export const command: Command = {
       console.warn('[doll] chart unavailable, posting the FAQ alone:', err);
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(0xf472b6)
-      .setThumbnail(ICON_URL)
+    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR)
       .setTitle('Doll Leveling FAQ')
       .setDescription(
         FAQ.map((item) => `**${item.question}**\n\n${item.tldr}`).join('\n\n')
@@ -55,13 +57,7 @@ export const command: Command = {
         name: 'Link',
         value: '**[NIKKE Sim — Doll Leveling](https://www.nikkesim.app/doll)**',
       });
-    if (card) {
-      embed.setImage(card.url);
-    }
 
-    await interaction.editReply({
-      embeds: [embed],
-      files: [iconAttachment(), ...(card?.file ? [card.file] : [])],
-    });
+    await interaction.editReply(await cardReply(embed, card, 'doll-card.png'));
   },
 };

@@ -1,6 +1,6 @@
 import { db, userTeams, type UserTeam } from '@app/db';
 import { eq } from 'drizzle-orm';
-import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
+import { brandEmbed, cardReply } from '../../lib/nikkesim/card-reply.js';
 import {
   ActionRowBuilder,
   ComponentType,
@@ -90,11 +90,9 @@ async function rosterView(
   };
 }
 
-/** Icon thumbnail, plus the card itself when it came back as bytes rather
- * than a URL (a roster code too long for an embed image URL — the common
- * case: a populated 5-team roster lands around 3.3 KB). */
-const cardFiles = (card: CardImage | null) =>
-  card?.file ? [iconAttachment(), card.file] : [iconAttachment()];
+/** The card as a standalone attachment above the embed — see card-reply.ts. */
+const rosterReply = (embed: EmbedBuilder, card: CardImage | null) =>
+  cardReply(embed, card, 'roster-card.png');
 
 export const command: Command = {
   data: new SlashCommandBuilder()
@@ -141,18 +139,10 @@ export const command: Command = {
         match.row.code,
         interaction.user.id
       );
-      const embed = new EmbedBuilder()
-        .setColor(0x5b9dff)
-        .setThumbnail(ICON_URL)
+      const embed = brandEmbed(new EmbedBuilder())
         .setTitle(match.row.name)
         .setDescription(`**[Open in Roster Sim](${pageUrl})**`);
-      if (card) {
-        embed.setImage(card.url);
-      }
-      await interaction.editReply({
-        embeds: [embed],
-        files: cardFiles(card),
-      });
+      await interaction.editReply(await rosterReply(embed, card));
       return;
     }
 
@@ -203,19 +193,11 @@ export const command: Command = {
       picked.row.code,
       interaction.user.id
     );
-    const embed = new EmbedBuilder()
-      .setColor(0x5b9dff)
-      .setThumbnail(ICON_URL)
+    const embed = brandEmbed(new EmbedBuilder())
       .setTitle(picked.row.name)
       .setDescription(`**[Open in Roster Sim](${pageUrl})**`);
-    if (card) {
-      embed.setImage(card.url);
-    }
     // Post the result publicly so the whole channel can see it.
-    await interaction.followUp({
-      embeds: [embed],
-      files: cardFiles(card),
-    });
+    await interaction.followUp(await rosterReply(embed, card));
     // Clean up the ephemeral "Loading…" message.
     await interaction.deleteReply().catch(() => null);
   },

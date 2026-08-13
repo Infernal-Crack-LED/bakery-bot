@@ -11,16 +11,22 @@
  *
  *   1. Manifest URLs — `/api/v1/img/<key>.<hash>.png` for the pre-rendered set
  *      (unit cards, rank boards, headline DPS charts, the static OL and generic
- *      charge-speed tables). Handed over as URLs: the set is small, stable and
- *      posted constantly, so Discord's proxy is warm and these DO appear
- *      instantly. The content hash is in the filename, so a re-render mints a
- *      new URL and Discord's indefinite URL-keyed cache can't pin a stale card.
+ *      charge-speed tables). Resolved as URLs: the set is small, stable and
+ *      posted constantly, so a re-render is cheap to spot — the content hash is
+ *      in the filename, so it mints a new URL and Discord's indefinite
+ *      URL-keyed cache can't pin a stale card.
  *   2. Dynamic cards — per-unit tables, windowed/comparison DPS charts, team
  *      and roster build cards. Every one of these is a URL Discord's proxy has
- *      likely never seen, so it always pops in. These are UPLOADED instead
- *      (see dynamicCard): the PNG travels in the message payload and is on
- *      screen the moment the reply appears. Costs ~100–300 KB per invocation,
- *      which is the price of the reply being complete when it lands.
+ *      likely never seen. These come back already UPLOADED (see dynamicCard):
+ *      the PNG travels in the message payload and is on screen the moment the
+ *      reply appears.
+ *
+ * SO WHY DOES A MANIFEST URL STILL END UP UPLOADED? Because a card is never
+ * posted inside an embed any more — an embed caps its image at the embed
+ * column's width, which renders a dense infographic unreadably small. Cards
+ * ship as plain attachments above the embed instead, and an attachment needs
+ * bytes, so card-reply.ts fetches a URL card before posting it. This layer
+ * still hands back the URL; card-reply.ts decides what to do with it.
  *
  * VERIFICATION: a URL that 4xx's renders in Discord as a silently absent image
  * — no error, no trace. So every dynamic request is resolved first (see
@@ -469,11 +475,12 @@ export async function isNotSimSupported(slug: string): Promise<boolean> {
 
 // ---- build-code cards (team / roster) ---------------------------------------
 
-/** How a card gets into an embed: either a URL Discord fetches itself, or
- * bytes we upload alongside the message. `url` is what setImage() takes. */
+/** How a card came back from the API: as a URL, or as bytes already fetched.
+ * Hand it to card-reply.ts, which turns either shape into the attachment the
+ * reply actually posts. */
 export interface CardImage {
   url: string;
-  /** Present only on the attachment path — include it in `files`. */
+  /** Present when the bytes were already pulled (dynamicCard). */
   file?: AttachmentBuilder;
 }
 

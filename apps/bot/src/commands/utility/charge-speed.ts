@@ -2,7 +2,11 @@ import { db, nikkeCharacters } from '@app/db';
 import { asc, eq, ilike } from 'drizzle-orm';
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../../types.js';
-import { iconAttachment, ICON_URL } from '../../lib/nikkesim/icon.js';
+import {
+  brandEmbed,
+  cardReply,
+  BOT_COLOR,
+} from '../../lib/nikkesim/card-reply.js';
 import { tableCardImage, type CardImage } from '../../lib/nikkesim/client.js';
 
 async function findCharacter(query: string) {
@@ -90,18 +94,13 @@ export const command: Command = {
         );
         return;
       }
-      const embed = new EmbedBuilder()
-        .setColor(0xf472b6)
-        .setThumbnail(ICON_URL)
-        .setImage(card.url)
-        .setDescription(
-          'Use `/charge-speed character:<name>` for unit-specific breakpoints.\n' +
-            '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
-        );
-      await interaction.editReply({
-        embeds: [embed],
-        files: [iconAttachment(), ...(card.file ? [card.file] : [])],
-      });
+      const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR).setDescription(
+        'Use `/charge-speed character:<name>` for unit-specific breakpoints.\n' +
+          '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
+      );
+      await interaction.editReply(
+        await cardReply(embed, card, 'charge-speed-table.png')
+      );
       return;
     }
 
@@ -145,17 +144,13 @@ export const command: Command = {
       );
       return;
     }
-    const embed = new EmbedBuilder()
-      .setColor(0xf472b6)
-      .setThumbnail(ICON_URL)
+    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR)
       .setTitle(`Charge Speed \u2014 ${character.name}`)
-      .setImage(card.url)
       .setDescription(
         '**[Full calculator on nikkesim.app](https://www.nikkesim.app/charge)**'
       );
-    await interaction.editReply({
-      embeds: [embed],
-      files: [iconAttachment(), ...(card.file ? [card.file] : [])],
-    });
+    await interaction.editReply(
+      await cardReply(embed, card, 'charge-speed-table.png')
+    );
   },
 };

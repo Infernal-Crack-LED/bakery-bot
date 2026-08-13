@@ -6,9 +6,17 @@ const CARD_URL = 'https://nikkesim.app/api/v1/img/doll/sr.0.d0110000.png';
 
 vi.mock('../../lib/nikkesim/client.js', () => ({
   dollCardImage: vi.fn(() => Promise.resolve({ url: CARD_URL })),
+  // The chart travels as an ATTACHMENT now (card-reply.ts), so a manifest
+  // URL's bytes get fetched and uploaded with the message.
+  fetchImageAttachment: vi.fn((_url: string, name: string) =>
+    Promise.resolve({ name } as never)
+  ),
 }));
 
-import { dollCardImage } from '../../lib/nikkesim/client.js';
+import {
+  dollCardImage,
+  fetchImageAttachment,
+} from '../../lib/nikkesim/client.js';
 import { command } from './doll.js';
 
 function fakeInteraction() {
@@ -44,15 +52,23 @@ describe('/doll', () => {
     expect(serialized).toContain('Combine (trade) them');
   });
 
-  it('embeds the per-phase chart', async () => {
+  it('posts the per-phase chart as an attachment, not inside the embed', async () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
     // No arguments: the default view, which is what nikkesim.app/doll shows.
     expect(dollCardImage).toHaveBeenCalledWith();
-    expect(embedJson(editReply).image).toEqual({ url: CARD_URL });
+    const embed = embedJson(editReply);
+    expect(embed.image).toBeUndefined();
+    expect(embed.thumbnail).toBeUndefined();
+    expect(fetchImageAttachment).toHaveBeenCalledWith(
+      CARD_URL,
+      'doll-card.png'
+    );
+    const payload = editReply.mock.calls[0]![0];
+    expect(payload.files[0]).toEqual({ name: 'doll-card.png' });
   });
 
-  it('uploads the chart when it was rendered on demand', async () => {
+  it('reuses the bytes when the chart was rendered on demand', async () => {
     const file = { name: 'doll-card.png' };
     vi.mocked(dollCardImage).mockResolvedValueOnce({
       url: 'attachment://doll-card.png',
@@ -61,7 +77,8 @@ describe('/doll', () => {
     const { interaction, editReply } = fakeInteraction();
     await command.execute(interaction as never);
     const payload = editReply.mock.calls[0]![0];
-    expect(payload.files).toEqual([expect.anything(), file]);
+    // card first, then the icon the embed's author line references
+    expect(payload.files).toEqual([file, expect.anything()]);
   });
 
   // The FAQ is the command's substance and stands on its own, so a chart that
