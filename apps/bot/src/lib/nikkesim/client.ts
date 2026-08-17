@@ -382,6 +382,45 @@ export async function resourcesCardImage(tier?: number): Promise<CardImage> {
   return isDynamic(url) ? dynamicCard(url, 'resources-card.png') : { url };
 }
 
+// ---- pull calculator --------------------------------------------------------
+
+/**
+ * The pull counts nikke-sim pre-renders (its PULL_PRERENDER_COUNTS — the /pull
+ * page's presets). Mirrored here only to know which counts have a manifest key
+ * worth trying; every other count renders on demand, so a stale list here costs
+ * one dynamic render, never a wrong card.
+ */
+const PULL_PRERENDERED = [10, 30, 100, 200, 300];
+
+/**
+ * Pull Calculator infographic (/pull): expected SSRs plus the cumulative copy
+ * odds — 1+ through MLB — for any planned number of Advanced Recruit pulls.
+ *
+ * The count runs to 100000, so unlike the resource tiers only the page's
+ * presets are pre-rendered; anything else goes straight to the dynamic route.
+ */
+export async function pullImageUrl(pulls: number): Promise<string> {
+  if (PULL_PRERENDERED.includes(pulls)) {
+    try {
+      const url = await manifestImageUrl(`pull/${pulls}`);
+      if (url) {
+        return url;
+      }
+    } catch {
+      // Manifest unavailable — fall through to the dynamic route, which
+      // renders the same card on demand.
+    }
+  }
+  const params = new URLSearchParams({ pulls: String(pulls) });
+  return verifyImageUrl(`${NIKKESIM_BASE_URL}${API_PREFIX}pull.png?${params}`);
+}
+
+/** Pull Calculator card as something an embed can carry. */
+export async function pullCardImage(pulls: number): Promise<CardImage> {
+  const url = await pullImageUrl(pulls);
+  return isDynamic(url) ? dynamicCard(url, 'pull-card.png') : { url };
+}
+
 // ---- doll leveling ----------------------------------------------------------
 
 export type DollRarity = 'R' | 'SR';

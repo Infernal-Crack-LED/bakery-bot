@@ -2,6 +2,25 @@ import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import { summarizePull } from '../../lib/gacha/pull.js';
 import type { PullSummary } from '../../lib/gacha/pull.js';
 import type { Command } from '../../types.js';
+import {
+  brandEmbed,
+  cardReply,
+  BOT_COLOR,
+} from '../../lib/nikkesim/card-reply.js';
+import { pullCardImage, type CardImage } from '../../lib/nikkesim/client.js';
+
+/**
+ * /pull — copy odds for a planned number of Advanced Recruit pulls.
+ *
+ * The answer is the Pull Calculator INFOGRAPHIC: nikke-sim owns the renderer
+ * (core/pullData.ts + pullCard.ts, served off /api/v1/img/pull.png) and the bot
+ * uploads the PNG. buildPullEmbed below is the fallback for when that render is
+ * unavailable — the same numbers as text, so an outage costs the picture rather
+ * than the answer. Its math (lib/gacha/pull.ts) is the parity twin of
+ * nikke-sim's pullData.ts; the per-pull rates are the game's published values.
+ */
+
+const PULL_PAGE_URL = 'https://www.nikkesim.app/pull';
 
 /** Format a per-pull rate as a percent, trimming a trailing ".0" (4% not 4.0%). */
 function ratePct(rate: number): string {
@@ -20,13 +39,14 @@ function pct1(p: number): string {
 }
 
 /**
- * Build the copy-odds embed: an "Any SSR" headline field, then one inline field
- * per featured unit (expected + cumulative copy odds). Cumulative odds ("≥2"
- * includes 3 and 4); the top copy count is tagged MLB (max limit break).
+ * The text form of the card, used when the render is unavailable: an "Any SSR"
+ * headline field, then one inline field per featured unit (expected +
+ * cumulative copy odds). Cumulative odds ("≥2" includes 3 and 4); the top copy
+ * count is tagged MLB (max limit break).
  */
 function buildPullEmbed(s: PullSummary): EmbedBuilder {
   const embed = new EmbedBuilder()
-    .setColor(0xf472b6)
+    .setColor(BOT_COLOR)
     .setTitle(`🎰 ${s.pulls} pull${s.pulls === 1 ? '' : 's'}`)
     .addFields({
       name: `✨ Any SSR — ${ratePct(s.anySsr.rate)}`,
@@ -72,6 +92,28 @@ export const command: Command = {
     ),
   execute: async (interaction) => {
     const pulls = interaction.options.getInteger('pulls', true);
-    await interaction.reply({ embeds: [buildPullEmbed(summarizePull(pulls))] });
+
+    // Deferred because only a handful of counts are pre-rendered — every other
+    // one falls back to an on-demand render whose bytes we then upload, and
+    // that can outlast the 3s Discord gives an initial response.
+    await interaction.deferReply();
+
+    let card: CardImage;
+    try {
+      card = await pullCardImage(pulls);
+    } catch (err) {
+      console.warn('[pull] card unavailable, posting the odds as text:', err);
+      await interaction.editReply({
+        embeds: [buildPullEmbed(summarizePull(pulls))],
+      });
+      return;
+    }
+
+    const embed = brandEmbed(new EmbedBuilder(), BOT_COLOR, {
+      name: 'Full calculator on nikkesim.app',
+      url: PULL_PAGE_URL,
+    });
+
+    await interaction.editReply(await cardReply(embed, card, 'pull-card.png'));
   },
 };
