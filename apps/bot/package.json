@@ -21,6 +21,7 @@
     "sync:emojis": "tsx src/scripts/sync-emojis.ts",
     "sync:install": "tsx src/scripts/sync-install.ts",
     "refresh:prydwen": "tsx src/scripts/refresh-prydwen.ts",
+    "blabla:session": "tsx src/scripts/refresh-blabla-session.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

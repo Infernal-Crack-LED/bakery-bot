@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  BLABLALINK_INVALID_TOKEN_CODE,
   blablalinkAuthFromEnv,
+  checkBlablalinkSession,
   fetchCharacterDetailsByOpenId,
   fetchUserCharacterDetails,
   fetchUserCharacters,
@@ -196,5 +198,81 @@ describe('blablalinkAuthFromEnv', () => {
     vi.stubEnv('BLABLALINK_OPEN_ID', '');
     expect(() => blablalinkAuthFromEnv()).toThrow('BLABLALINK_GAME_TOKEN');
     vi.unstubAllEnvs();
+  });
+});
+
+describe('checkBlablalinkSession', () => {
+  it('reports DEAD on the invalid-token code', async () => {
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          code: 300001,
+          msg: 'ret=11002,msg=Inner token is invalid. Query empty.',
+        })
+      )
+    );
+
+    const health = await checkBlablalinkSession(
+      '8182611585046639373',
+      AUTH,
+      fetchImpl as never
+    );
+
+    expect(health.alive).toBe(false);
+    expect(health.code).toBe(BLABLALINK_INVALID_TOKEN_CODE);
+    expect(health.msg).toContain('Inner token is invalid');
+  });
+
+  it('reports ALIVE with the roster size on success', async () => {
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(
+        Response.json({ code: 0, data: { characters: [{}, {}, {}] } })
+      )
+    );
+
+    const health = await checkBlablalinkSession(
+      '8182611585046639373',
+      AUTH,
+      fetchImpl as never
+    );
+
+    expect(health).toMatchObject({ alive: true, code: 0, characters: 3 });
+    // The probe target rides in the body; the session rides in the cookie.
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      intl_open_id: '8182611585046639373',
+      nikke_area_id: 82,
+    });
+  });
+
+  it('stays ALIVE when the target roster is private/empty', async () => {
+    // A private roster still answers code 0 — that proves OUR session works,
+    // so it must not be reported as an expired token.
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(Response.json({ code: 0, data: { characters: [] } }))
+    );
+
+    const health = await checkBlablalinkSession(
+      '8182611585046639373',
+      AUTH,
+      fetchImpl as never
+    );
+
+    expect(health).toMatchObject({ alive: true, characters: 0 });
+  });
+
+  it('stays ALIVE on an unrelated non-zero code', async () => {
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(Response.json({ code: 400002, msg: 'some other error' }))
+    );
+
+    const health = await checkBlablalinkSession(
+      '8182611585046639373',
+      AUTH,
+      fetchImpl as never
+    );
+
+    expect(health.alive).toBe(true);
+    expect(health.code).toBe(400002);
   });
 });

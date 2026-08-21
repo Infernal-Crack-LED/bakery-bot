@@ -185,6 +185,49 @@ export function fetchUserCharacters(
 }
 
 /**
+ * The proxy's "your session cookie is bad" code. blablalink answers HTTP 200
+ * with `{ code: 300001, msg: "ret=11002,msg=Inner token is invalid…" }` when
+ * `game_token`/`game_openid` are expired or wrong. The web app surfaces every
+ * non-zero code as one 502 ("roster is probably private"), so anything that
+ * needs to tell "our shared session died" from "that roster isn't public" has
+ * to read this code specifically.
+ */
+export const BLABLALINK_INVALID_TOKEN_CODE = 300001;
+
+/** The verdict from `checkBlablalinkSession`. */
+export interface SessionHealth {
+  /** False only when the proxy rejected our SESSION (not the target roster). */
+  alive: boolean;
+  /** The proxy's envelope code (0 = success). */
+  code: number;
+  msg?: string;
+  /** Roster size, when the probe target's roster was readable. */
+  characters?: number;
+}
+
+/**
+ * Probe whether the shared blablalink session still works, by reading some
+ * account's roster with it. `probeOpenId` only has to EXIST — a private or
+ * empty roster still answers `code: 0`, which already proves the session is
+ * valid — so health is "the code isn't BLABLALINK_INVALID_TOKEN_CODE", not "we
+ * got characters back". That stops a probe target going private from looking
+ * like an expired token.
+ */
+export async function checkBlablalinkSession(
+  probeOpenId: string,
+  auth: BlablalinkAuth = blablalinkAuthFromEnv(),
+  fetchImpl: Fetch = fetch
+): Promise<SessionHealth> {
+  const res = await fetchUserCharacters(probeOpenId, auth, fetchImpl);
+  return {
+    alive: res.code !== BLABLALINK_INVALID_TOKEN_CODE,
+    code: res.code,
+    msg: res.msg,
+    characters: res.data?.characters?.length,
+  };
+}
+
+/**
  * Fetch live per-character detail (levels, gear, cubes, favorite item, …) from a
  * given account's roster, by `name_code` — the id the roster's characters carry
  * (map a blablalink resource_id to it via fetchBlablalinkRoster, or enumerate the
