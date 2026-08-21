@@ -13,6 +13,7 @@
  *
  *   npm run blabla:session -- --check
  *   npm run blabla:session -- --set --token=<game_token> --openid=<game_openid>
+ *   npm run blabla:session -- --scan-areas [--openid=<id>]
  *
  * --check  probes the live session and exits 1 if it is dead (so a cron/monitor
  *          can alert on the exit code). Reads no secrets beyond the session.
@@ -20,6 +21,12 @@
  *          a token that doesn't work — a bad rotation would otherwise take the
  *          feature down silently — then upserts both variables on `@app/web`
  *          and reads them back. Railway redeploys the service to pick them up.
+ *
+ * --scan-areas reads one account (or every stored roster) on EVERY valid
+ *          nikke_area_id and reports where a roster actually exists. This is
+ *          the instrument behind the region work: it is what showed that
+ *          accounts hold rosters in several regions at once, and that rosters
+ *          stored with 0 characters were really wrong-region reads.
  *
  * The probe target is any account whose open id we already know: the most
  * recently synced roster in `nikke_rosters`, or `--probe-openid=<id>`. It does
@@ -34,7 +41,9 @@ import { db, nikkeRosters } from '@app/db';
 import { desc } from 'drizzle-orm';
 import {
   BLABLALINK_INVALID_TOKEN_CODE,
+  NIKKE_AREA_IDS,
   checkBlablalinkSession,
+  fetchUserCharacters,
   type BlablalinkAuth,
 } from '@app/nikke';
 import {
@@ -117,6 +126,49 @@ async function probe(token: string, openId: string, probeOpenId: string) {
   return health;
 }
 
+/**
+ * Which regions does each account actually have a roster in? Reads every valid
+ * area id and prints the ones that resolve, with their unit counts. An area
+ * that answers `code 0` with ZERO units is a valid region the account has no
+ * roster in — printed as `:0` rather than hidden, because that is exactly the
+ * response a wrong-region read gives and the whole point is to make it visible.
+ */
+async function runScanAreas() {
+  const token = process.env.BLABLALINK_GAME_TOKEN;
+  const openId = process.env.BLABLALINK_GAME_OPENID;
+  if (!token || !openId) {
+    throw new Error(`set ${TOKEN_VAR} and ${OPENID_VAR} locally to scan`);
+  }
+  const explicit = flag('openid');
+  const targets = explicit
+    ? [explicit]
+    : (
+        await db
+          .select({ openId: nikkeRosters.openId })
+          .from(nikkeRosters)
+          .orderBy(desc(nikkeRosters.syncedAt))
+      ).map((r) => r.openId);
+
+  console.log(`[blabla:session] scanning ${targets.length} account(s)`);
+  for (const target of targets) {
+    const hits: string[] = [];
+    for (const area of NIKKE_AREA_IDS) {
+      const res = await fetchUserCharacters(target, {
+        ...authFrom(token, openId),
+        areaId: area,
+      });
+      if (res.code === 0) {
+        hits.push(`${area}:${res.data?.characters?.length ?? 0}`);
+      }
+      // Space the calls out — this is one shared session for the whole site.
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    console.log(
+      `${target.padEnd(22)} ${hits.join('  ') || '(no area resolved)'}`
+    );
+  }
+}
+
 async function runCheck() {
   const token = process.env.BLABLALINK_GAME_TOKEN;
   const openId = process.env.BLABLALINK_GAME_OPENID;
@@ -188,9 +240,17 @@ async function runSet() {
   );
 }
 
-const mode = has('set') ? runSet : has('check') ? runCheck : null;
+const mode = has('set')
+  ? runSet
+  : has('check')
+    ? runCheck
+    : has('scan-areas')
+      ? runScanAreas
+      : null;
 if (!mode) {
-  console.error('usage: --check | --set --token=<...> --openid=<...>');
+  console.error(
+    'usage: --check | --set --token=<...> --openid=<...> | --scan-areas [--openid=<...>]'
+  );
   process.exit(2);
 }
 mode()
