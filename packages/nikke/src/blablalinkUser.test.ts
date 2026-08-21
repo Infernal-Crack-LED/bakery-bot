@@ -3,8 +3,10 @@ import {
   BLABLALINK_INVALID_TOKEN_CODE,
   DEFAULT_NIKKE_AREA_ID,
   NIKKE_AREA_IDS,
+  NIKKE_REGIONS,
   blablalinkAuthFromEnv,
   checkBlablalinkSession,
+  fetchNikkeRegionList,
   isNikkeAreaId,
   fetchCharacterDetailsByOpenId,
   fetchUserCharacterDetails,
@@ -291,6 +293,40 @@ describe('NIKKE area ids', () => {
     for (const id of [79, 80, 86, 0, -1, 8283]) {
       expect(isNikkeAreaId(id)).toBe(false);
     }
+  });
+
+  it('names each region as blablalink does', () => {
+    // Verbatim from GET /api/lip/direct/commodity/Game/GetRegionList?game_id=29080
+    // (2026-08-21). If this ever fails, blablalink changed its region list —
+    // re-derive with fetchNikkeRegionList() rather than editing to taste.
+    expect(NIKKE_REGIONS).toEqual([
+      { areaId: 81, name: 'Japan' },
+      { areaId: 82, name: 'NA' },
+      { areaId: 83, name: 'Korea' },
+      { areaId: 84, name: 'Global' },
+      { areaId: 85, name: 'SEA' },
+    ]);
+  });
+
+  it('fetches the region list without a session', async () => {
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          code: 0,
+          data: { area_list: [{ area_id: 82, area_name: 'NA' }] },
+        })
+      )
+    );
+
+    const out = await fetchNikkeRegionList('29080', fetchImpl as never);
+
+    expect(out.data?.area_list?.[0]).toEqual({ area_id: 82, area_name: 'NA' });
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      'https://api.blablalink.com/api/lip/direct/commodity/Game/GetRegionList?game_id=29080'
+    );
+    // No Cookie header — this endpoint needs no session.
+    expect((init.headers as Record<string, string>).Cookie).toBeUndefined();
   });
 
   it('keeps 82 as the default so pre-existing rosters resolve unchanged', () => {

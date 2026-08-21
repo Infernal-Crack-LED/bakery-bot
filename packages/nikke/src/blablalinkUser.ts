@@ -65,19 +65,32 @@ export interface UserCharactersResponse {
 
 /**
  * The `nikke_area_id` values blablalink accepts for NIKKE under intl game
- * 29080. Measured 2026-08-20 by scanning 79–86 with a live session: 81–85
- * answer `code 0` (with an empty character list when that account has no roster
- * in that region), while 79/80/86 answer `1303001 param invalid`. blablalink
- * itself labels game 29080 "JP/KR/NA/SEA/Global" — five regions, matching the
- * five ids. HK/MC/TW is a DIFFERENT intl game id (29157) and is not reachable
- * with these credentials at all.
+ * 29080, with the region each one names. These are blablalink's OWN values and
+ * labels — `fetchNikkeRegionList()` returns exactly this, verified 2026-08-21;
+ * it is hardcoded because five stable regions do not justify a network call on
+ * every roster read. Re-derive with that function if a region is ever added.
+ *
+ * Independently corroborated: scanning 79–86 with a live session, 81–85 answer
+ * `code 0` while 79/80/86 answer `1303001 param invalid`. HK/MC/TW is a
+ * DIFFERENT intl game id (29157, area 91) and is not reachable with these
+ * credentials at all.
  *
  * An account can hold a roster in SEVERAL regions at once (scanning the stored
  * rosters found accounts resolving on 81+82+84 with different unit counts), so
  * the region is a genuine user CHOICE, not something to auto-detect — which is
  * why the sim asks rather than guesses.
  */
-export const NIKKE_AREA_IDS: readonly number[] = [81, 82, 83, 84, 85];
+export const NIKKE_REGIONS: readonly { areaId: number; name: string }[] = [
+  { areaId: 81, name: 'Japan' },
+  { areaId: 82, name: 'NA' },
+  { areaId: 83, name: 'Korea' },
+  { areaId: 84, name: 'Global' },
+  { areaId: 85, name: 'SEA' },
+];
+
+export const NIKKE_AREA_IDS: readonly number[] = NIKKE_REGIONS.map(
+  (r) => r.areaId
+);
 
 /**
  * The area every roster read used before the region became selectable. Kept as
@@ -88,6 +101,46 @@ export const DEFAULT_NIKKE_AREA_ID = 82;
 /** Is this a `nikke_area_id` blablalink will accept? */
 export function isNikkeAreaId(value: number): boolean {
   return NIKKE_AREA_IDS.includes(value);
+}
+
+/** One region as blablalink's own region list reports it. */
+export interface BlablalinkRegion {
+  area_id: number;
+  area_name: string;
+  zone_list?: unknown[];
+}
+export interface RegionListResponse {
+  code: number;
+  msg?: string;
+  data?: { area_list?: BlablalinkRegion[] };
+}
+
+/**
+ * The authoritative region list for a game id — the source of truth behind
+ * NIKKE_REGIONS. Unlike the Game proxy this is a plain GET on the LIP commodity
+ * API and needs no session, so it is safe to call for a spot check.
+ *
+ * Finding it took some digging (the URL is built at runtime from split-up
+ * constants in blablalink's bundle, so it greps for nothing useful), which is
+ * exactly why it is written down here: without it the id→region mapping has to
+ * be guessed from a population survey, and a wrong guess mislabels the region
+ * picker. Defaults to NIKKE global (29080); HK/MC/TW is game 29157.
+ */
+export function fetchNikkeRegionList(
+  gameId = '29080',
+  fetchImpl: Fetch = fetch
+): Promise<RegionListResponse> {
+  return fetchImpl(
+    `${API}/api/lip/direct/commodity/Game/GetRegionList?game_id=${encodeURIComponent(gameId)}`,
+    {
+      headers: {
+        Accept: 'application/json, text/plain, */*',
+        'User-Agent': UA,
+        Origin: 'https://www.blablalink.com',
+        Referer: 'https://www.blablalink.com/',
+      },
+    }
+  ).then((res) => res.json() as Promise<RegionListResponse>);
 }
 
 /** Read the blablalink session from env, throwing if a required secret is missing. */
