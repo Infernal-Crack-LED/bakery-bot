@@ -63,6 +63,33 @@ export interface UserCharactersResponse {
   data?: { characters?: UserCharacterSummary[] };
 }
 
+/**
+ * The `nikke_area_id` values blablalink accepts for NIKKE under intl game
+ * 29080. Measured 2026-08-20 by scanning 79–86 with a live session: 81–85
+ * answer `code 0` (with an empty character list when that account has no roster
+ * in that region), while 79/80/86 answer `1303001 param invalid`. blablalink
+ * itself labels game 29080 "JP/KR/NA/SEA/Global" — five regions, matching the
+ * five ids. HK/MC/TW is a DIFFERENT intl game id (29157) and is not reachable
+ * with these credentials at all.
+ *
+ * An account can hold a roster in SEVERAL regions at once (scanning the stored
+ * rosters found accounts resolving on 81+82+84 with different unit counts), so
+ * the region is a genuine user CHOICE, not something to auto-detect — which is
+ * why the sim asks rather than guesses.
+ */
+export const NIKKE_AREA_IDS: readonly number[] = [81, 82, 83, 84, 85];
+
+/**
+ * The area every roster read used before the region became selectable. Kept as
+ * the fallback so accounts synced before then keep resolving unchanged.
+ */
+export const DEFAULT_NIKKE_AREA_ID = 82;
+
+/** Is this a `nikke_area_id` blablalink will accept? */
+export function isNikkeAreaId(value: number): boolean {
+  return NIKKE_AREA_IDS.includes(value);
+}
+
 /** Read the blablalink session from env, throwing if a required secret is missing. */
 export function blablalinkAuthFromEnv(): BlablalinkAuth {
   const gameToken = process.env.BLABLALINK_GAME_TOKEN;
@@ -182,6 +209,49 @@ export function fetchUserCharacters(
     auth,
     fetchImpl
   );
+}
+
+/**
+ * The proxy's "your session cookie is bad" code. blablalink answers HTTP 200
+ * with `{ code: 300001, msg: "ret=11002,msg=Inner token is invalid…" }` when
+ * `game_token`/`game_openid` are expired or wrong. The web app surfaces every
+ * non-zero code as one 502 ("roster is probably private"), so anything that
+ * needs to tell "our shared session died" from "that roster isn't public" has
+ * to read this code specifically.
+ */
+export const BLABLALINK_INVALID_TOKEN_CODE = 300001;
+
+/** The verdict from `checkBlablalinkSession`. */
+export interface SessionHealth {
+  /** False only when the proxy rejected our SESSION (not the target roster). */
+  alive: boolean;
+  /** The proxy's envelope code (0 = success). */
+  code: number;
+  msg?: string;
+  /** Roster size, when the probe target's roster was readable. */
+  characters?: number;
+}
+
+/**
+ * Probe whether the shared blablalink session still works, by reading some
+ * account's roster with it. `probeOpenId` only has to EXIST — a private or
+ * empty roster still answers `code: 0`, which already proves the session is
+ * valid — so health is "the code isn't BLABLALINK_INVALID_TOKEN_CODE", not "we
+ * got characters back". That stops a probe target going private from looking
+ * like an expired token.
+ */
+export async function checkBlablalinkSession(
+  probeOpenId: string,
+  auth: BlablalinkAuth = blablalinkAuthFromEnv(),
+  fetchImpl: Fetch = fetch
+): Promise<SessionHealth> {
+  const res = await fetchUserCharacters(probeOpenId, auth, fetchImpl);
+  return {
+    alive: res.code !== BLABLALINK_INVALID_TOKEN_CODE,
+    code: res.code,
+    msg: res.msg,
+    characters: res.data?.characters?.length,
+  };
 }
 
 /**
