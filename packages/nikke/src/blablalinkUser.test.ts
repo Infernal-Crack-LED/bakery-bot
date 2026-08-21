@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   BLABLALINK_INVALID_TOKEN_CODE,
+  DEFAULT_NIKKE_AREA_ID,
+  NIKKE_AREA_IDS,
   blablalinkAuthFromEnv,
   checkBlablalinkSession,
+  isNikkeAreaId,
   fetchCharacterDetailsByOpenId,
   fetchUserCharacterDetails,
   fetchUserCharacters,
@@ -274,5 +277,24 @@ describe('checkBlablalinkSession', () => {
 
     expect(health.alive).toBe(true);
     expect(health.code).toBe(400002);
+  });
+});
+
+describe('NIKKE area ids', () => {
+  it('accepts the five measured regions and nothing else', () => {
+    // Measured 2026-08-20 against a live session: 81-85 answer code 0,
+    // 79/80/86 answer 1303001 "param invalid".
+    expect(NIKKE_AREA_IDS).toEqual([81, 82, 83, 84, 85]);
+    for (const id of NIKKE_AREA_IDS) {
+      expect(isNikkeAreaId(id)).toBe(true);
+    }
+    for (const id of [79, 80, 86, 0, -1, 8283]) {
+      expect(isNikkeAreaId(id)).toBe(false);
+    }
+  });
+
+  it('keeps 82 as the default so pre-existing rosters resolve unchanged', () => {
+    expect(DEFAULT_NIKKE_AREA_ID).toBe(82);
+    expect(isNikkeAreaId(DEFAULT_NIKKE_AREA_ID)).toBe(true);
   });
 });

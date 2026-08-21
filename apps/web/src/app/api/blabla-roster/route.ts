@@ -1,7 +1,10 @@
 import { NextRequest } from 'next/server';
 import {
+  DEFAULT_NIKKE_AREA_ID,
+  NIKKE_AREA_IDS,
   fetchCharacterDetailsByOpenId,
   fetchUserCharacters,
+  isNikkeAreaId,
   parseIntlOpenId,
   type BlablalinkAuth,
 } from '@app/nikke';
@@ -27,7 +30,7 @@ export const dynamic = 'force-dynamic';
 // id is caller-supplied by design (a Discord user may own several NIKKE
 // accounts), and only resolves for rosters the owner has made public.
 //
-// Usage: GET /api/blabla-roster?openid=<intl_open_id | profile URL>[&details=1][&refresh=1]
+// Usage: GET /api/blabla-roster?openid=<intl_open_id | profile URL>[&details=1][&refresh=1][&area=<81-85>]
 //   Authorization: Bearer <session token>   (or ?key=<BLABLA_PROBE_KEY> for
 //   service-to-service / testing, only when that env var is set).
 
@@ -63,6 +66,29 @@ export async function GET(req: NextRequest) {
   const wantDetails = url.searchParams.get('details') === '1';
   const forceRefresh = url.searchParams.get('refresh') === '1';
 
+  // Which NIKKE region to read. A blablalink account can hold a roster in more
+  // than one region, so this is the caller's choice and cannot be inferred:
+  // reading the wrong one answers `code 0` with an EMPTY character list, which
+  // used to be stored as a real (empty) roster. Callers that don't pass one
+  // keep whatever region this account last synced from, so clients predating
+  // the parameter are unaffected.
+  const areaParam = url.searchParams.get('area');
+  if (areaParam !== null && !isNikkeAreaId(Number(areaParam))) {
+    return json(
+      req,
+      {
+        error: 'bad_area',
+        msg: `?area= must be one of ${NIKKE_AREA_IDS.join(', ')}`,
+      },
+      400
+    );
+  }
+  const stored = await getStoredRoster(target);
+  const areaId =
+    areaParam !== null
+      ? Number(areaParam)
+      : (stored?.areaId ?? DEFAULT_NIKKE_AREA_ID);
+
   // Auto-link: whichever account an authenticated user just used becomes their
   // current one (superseding — and keeping as history — the previous). Best
   // effort: a link write must never block serving the roster. Skipped for the
@@ -77,14 +103,16 @@ export async function GET(req: NextRequest) {
 
   // 2) Persisted read (cross-session). Serve the stored snapshot unless a
   // refresh is forced — or details are requested but weren't stored. No live
-  // fetch, so it doesn't touch blablalink or the rate budget.
-  if (!forceRefresh) {
-    const stored = await getStoredRoster(target);
-    if (stored && (!wantDetails || stored.details)) {
+  // fetch, so it doesn't touch blablalink or the rate budget. A snapshot from a
+  // DIFFERENT region can't answer for the one being asked for, so switching
+  // region always goes live.
+  if (!forceRefresh && stored && stored.areaId === areaId) {
+    if (!wantDetails || stored.details) {
       await rememberAccount();
       return json(req, {
         source: 'db',
         openId: stored.openId,
+        areaId: stored.areaId,
         count: stored.characters.length,
         characters: stored.characters,
         details: wantDetails ? stored.details : undefined,
@@ -116,7 +144,7 @@ export async function GET(req: NextRequest) {
     gameToken,
     gameOpenId,
     intlOpenId: target,
-    areaId: Number(process.env.BLABLALINK_AREA_ID) || 82,
+    areaId,
   };
 
   const list = await fetchUserCharacters(target, auth);
@@ -167,19 +195,29 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const syncedAt = await upsertRoster({
-    openId: target,
-    areaId: auth.areaId,
-    characters,
-    details,
-    syncedLoadouts,
-    syncLevel,
-  });
+  // Persist — EXCEPT an empty result, which almost always means the caller
+  // picked a region this account has no roster in. blablalink answers that with
+  // `code 0` and an empty list, indistinguishable from success, so storing it
+  // would overwrite a perfectly good snapshot from the right region with zero
+  // units (several stored rosters were sitting at 0 characters for exactly this
+  // reason). Serve the empty answer so the UI can say "nothing here, try
+  // another region", but leave the snapshot alone.
+  const syncedAt = characters.length
+    ? await upsertRoster({
+        openId: target,
+        areaId: auth.areaId,
+        characters,
+        details,
+        syncedLoadouts,
+        syncLevel,
+      })
+    : (stored?.syncedAt ?? new Date());
   await rememberAccount();
 
   return json(req, {
     source: 'live',
     openId: target,
+    areaId,
     count: characters.length,
     characters,
     details,
