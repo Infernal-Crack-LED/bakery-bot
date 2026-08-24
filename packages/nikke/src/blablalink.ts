@@ -265,14 +265,17 @@ export interface FavoriteItemData {
 
 /**
  * One entry of the equipment overload-option table
- * (`/equip/equip_option_table_v2-<locale>.json`): a buff line (e.g. "Increase
- * ATK", "Increase Critical Rate") and the tiered `state_effect_id_list` it maps
+ * (`/equip/equip_option_table_v2-<locale>.json`): a buff line (e.g. "Increased
+ * ATK", "Increased Critical Rate") and the tiered `state_effect_id_list` it maps
  * to. Entries sharing a `state_effect_group_id` are the same line at different
- * tiers — the 9 rollable gear overload lines.
+ * tiers — the 10 rollable gear overload lines (9 stat lines + Increased
+ * Recovery). `description_localkey` is forwarded to the sim verbatim, so it must
+ * stay the exact game string (scripts/dump-overload-labels.ts prints the live
+ * set).
  */
 export interface OverloadLine {
   id: number;
-  description_localkey: string; // resolved English label, e.g. "Increase ATK"
+  description_localkey: string; // resolved English label, e.g. "Increased ATK"
   state_effect_group_id: number;
   state_effect_id_list: number[];
 }
