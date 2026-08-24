@@ -59,7 +59,7 @@ export interface OlResolved {
 // ─── The normalized shape the sim consumes ──────────────────────────────────
 
 export interface SyncedOlLine {
-  label: string; // canonical English label, e.g. "Increase ATK"
+  label: string; // canonical English label, e.g. "Increased ATK"
   tier: number; // roll tier 1..15 (sim maps (label, tier) → value)
 }
 export interface SyncedCube {

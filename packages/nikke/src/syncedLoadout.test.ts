@@ -17,37 +17,37 @@ import {
 const LINES = [
   {
     id: 1004001,
-    description_localkey: 'Increase ATK',
+    description_localkey: 'Increased ATK',
     state_effect_group_id: 100400,
     state_effect_id_list: [7000801, 7000802, 7000803, 7000804, 7000805],
   },
   {
     id: 1004002,
-    description_localkey: 'Increase ATK',
+    description_localkey: 'Increased ATK',
     state_effect_group_id: 100400,
     state_effect_id_list: [7000806, 7000807, 7000808, 7000809, 7000810],
   },
   {
     id: 1004003,
-    description_localkey: 'Increase ATK',
+    description_localkey: 'Increased ATK',
     state_effect_group_id: 100400,
     state_effect_id_list: [7000811, 7000812, 7000813, 7000814, 7000815],
   },
   {
     id: 1008001,
-    description_localkey: 'Increase Critical Damage',
+    description_localkey: 'Increased Critical Damage',
     state_effect_group_id: 100800,
     state_effect_id_list: [7001201, 7001202, 7001203, 7001204, 7001205],
   },
   {
     id: 1008002,
-    description_localkey: 'Increase Critical Damage',
+    description_localkey: 'Increased Critical Damage',
     state_effect_group_id: 100800,
     state_effect_id_list: [7001206, 7001207, 7001208, 7001209, 7001210],
   },
   {
     id: 1008003,
-    description_localkey: 'Increase Critical Damage',
+    description_localkey: 'Increased Critical Damage',
     state_effect_group_id: 100800,
     state_effect_id_list: [7001211, 7001212, 7001213, 7001214, 7001215],
   },
@@ -105,11 +105,11 @@ const deps: NormalizeDeps = {
 describe('builders', () => {
   it('buildOverloadIndex assigns the GLOBAL tier across a line group (1..15)', () => {
     const idx = buildOverloadIndex(LINES);
-    expect(idx.get(7000801)).toEqual({ label: 'Increase ATK', tier: 1 });
+    expect(idx.get(7000801)).toEqual({ label: 'Increased ATK', tier: 1 });
     // 3rd entry, 1st id → tier 11 (not tier 1)
-    expect(idx.get(7000811)).toEqual({ label: 'Increase ATK', tier: 11 });
+    expect(idx.get(7000811)).toEqual({ label: 'Increased ATK', tier: 11 });
     expect(idx.get(7001215)).toEqual({
-      label: 'Increase Critical Damage',
+      label: 'Increased Critical Damage',
       tier: 15,
     });
     expect(idx.size).toBe(30);
@@ -202,9 +202,9 @@ describe('normalizeSyncedLoadout', () => {
     expect(out.doll).toEqual({ rarity: 'SSR', level: 2 });
     expect(out.gearTier).toBe('T10');
     expect(out.ol).toEqual([
-      { label: 'Increase ATK', tier: 11 },
-      { label: 'Increase Critical Damage', tier: 15 },
-      { label: 'Increase ATK', tier: 1 },
+      { label: 'Increased ATK', tier: 11 },
+      { label: 'Increased Critical Damage', tier: 15 },
+      { label: 'Increased ATK', tier: 1 },
     ]);
     // gear: 3 pieces at lv0 (×1) + 1 at lv5 (×1.5)
     expect(out.gear).toEqual({
