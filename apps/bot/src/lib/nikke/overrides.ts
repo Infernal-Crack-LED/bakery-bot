@@ -61,8 +61,12 @@ export const SYNERGY_CHARACTER_OVERRIDES: Record<
  *
  * Seeded AFTER Synergy in buildCharacters, so if Synergy later lists a unit that
  * is also here, the Synergy record wins (first-wins on the normalized name) and
- * the manual entry becomes a no-op. Add a unit here when it exists on blablalink
- * / Prydwen / the sheet but is missing from the sync because Synergy lacks it.
+ * the manual entry becomes a no-op.
+ *
+ * Mostly obsolete: buildCharacters now auto-seeds every unit on the blablalink
+ * roster that no other source lists, so a newly-released NIKKE needs no entry
+ * here. Add one only for a unit blablalink ALSO lacks (a Prydwen/sheet-only or
+ * pre-release unit), or to pin a display name that differs from blablalink's.
  */
 export const MANUAL_CHARACTERS: string[] = [
   'Laplace: Ultimate Hero',

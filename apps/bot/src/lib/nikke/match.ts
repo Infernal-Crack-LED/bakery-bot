@@ -19,7 +19,12 @@
 import type { NewNikkeCharacter } from '@app/db';
 // The pure name helpers moved to the shared @app/nikke package; re-exported here
 // so existing `./match.js` importers keep working.
-import { normalizeName, slugify, acronym } from '@app/nikke';
+import {
+  normalizeName,
+  slugify,
+  acronym,
+  type BlablalinkRosterEntry,
+} from '@app/nikke';
 import {
   MANUAL_CHARACTERS,
   SHEET_NAME_OVERRIDES,
@@ -42,6 +47,13 @@ export interface SyncInputs {
   attributes?: SynergyAttributes[]; // profile attrs, keyed by Japanese name
   sheetPriority: SheetCharacter[];
   sheetBuilds?: SheetBuildEntry[];
+  /**
+   * The blablalink roster (the game's own character list). Used as a LAST-RESORT
+   * seed so a unit that has shipped in-game shows up the day it releases instead
+   * of whenever Synergy gets around to listing it. Optional — omit it and the
+   * build behaves exactly as before.
+   */
+  blablalinkRoster?: BlablalinkRosterEntry[];
 }
 
 export interface BuildResult {
@@ -54,6 +66,8 @@ export interface BuildResult {
     /** Sheet entries we couldn't attach to a character. */
     sheet: string[];
   };
+  /** Display names seeded from the blablalink roster because no other source had them. */
+  blablalinkSeeded: string[];
 }
 
 const unique = (xs: string[]): string[] => [...new Set(xs)];
@@ -63,6 +77,7 @@ export function buildCharacters(inputs: SyncInputs): BuildResult {
   const { synergyCharacters, dictionary, arenaStats, sheetPriority } = inputs;
   const sheetBuilds = inputs.sheetBuilds ?? [];
 
+  const blablalinkSeeded: string[] = [];
   const characters: NewNikkeCharacter[] = [];
   const byNorm = new Map<string, NewNikkeCharacter>();
   const byId = new Map<string, NewNikkeCharacter>();
@@ -134,6 +149,37 @@ export function buildCharacters(inputs: SyncInputs): BuildResult {
     characters.push(rec);
     byNorm.set(norm, rec);
     byId.set(rec.id, rec);
+  }
+
+  // Seed anything still missing from the blablalink roster — the game's own
+  // character list, which gets a new unit on release day while Synergy (and the
+  // sheet, and Prydwen) lag by days or weeks. Same shape as MANUAL_CHARACTERS: the
+  // English display name, id = slugify(name), no Synergy-derived fields. Seeded
+  // LAST so Synergy and the manual list both win on a normalized-name collision —
+  // which is also what keeps blablalink's duplicate/tentative rows ("Rei", "Rei
+  // (Tentative Name)") from creating bogus units. The roledata backfill later in
+  // the sync matches these rows back to their resource_id by the same normalized
+  // name, so base stats, skills and the portrait fill in on this very run.
+  for (const entry of inputs.blablalinkRoster ?? []) {
+    const id = slugify(entry.name);
+    if (!id) {
+      continue;
+    }
+    const norm = normalizeName(entry.name);
+    if (byNorm.has(norm) || byId.has(id)) {
+      continue; // an earlier source already has this unit
+    }
+    const rec: NewNikkeCharacter = {
+      id,
+      name: entry.name,
+      // Like MANUAL_CHARACTERS: no invented aliases — the sheet's abbreviations
+      // column is the only alias source for a non-Synergy unit.
+      aliases: [],
+    };
+    characters.push(rec);
+    byNorm.set(norm, rec);
+    byId.set(rec.id, rec);
+    blablalinkSeeded.push(entry.name);
   }
 
   // Attach profile attributes (joined by the shared Japanese name).
@@ -225,5 +271,6 @@ export function buildCharacters(inputs: SyncInputs): BuildResult {
       arenaStats: unique(arenaUnmatched),
       sheet: unique(sheetUnmatched),
     },
+    blablalinkSeeded,
   };
 }
