@@ -33,6 +33,7 @@ import {
   parseRoleColumns,
   parseSkillDescriptions,
   parseSkillLevels,
+  type BlablalinkRosterEntry,
 } from '@app/nikke';
 import { buildCharacters, normalizeName } from './match.js';
 import {
@@ -72,6 +73,8 @@ export interface SyncSummary {
   skillCooldowns: number;
   /** How many characters had their blablalink portrait URL set/updated. */
   portraits: number;
+  /** How many characters were seeded from the blablalink roster (no other source had them). */
+  blablalinkSeeded: number;
   errors: string[];
   unmatched: { untranslated: number; arenaStats: number; sheet: number };
 }
@@ -88,13 +91,16 @@ interface BaseStatsResult {
  * fetch, so we only touch blablalink for characters missing ANY of them: base
  * stats, skill data, or the snapshot (each condition backfills rows synced
  * before that field existed). If none are missing this is a no-op (zero network
- * calls). Otherwise we pull the roster once, match each missing character to its
+ * calls). Otherwise we use the roster the caller already fetched (falling back to
+ * fetching it here), match each missing character to its
  * resource_id by normalized name, and fetch + store that character's stats,
  * per-level skill coefficients, resolved skill prose, and the grouped roledata
  * snapshot. The shared synchro-level multiplier is written to `bot_meta` the
  * first time we fetch any character.
  */
-async function syncBaseStats(): Promise<BaseStatsResult> {
+async function syncBaseStats(
+  rosterFromCaller?: BlablalinkRosterEntry[]
+): Promise<BaseStatsResult> {
   const missing = await db
     .select({ id: nikkeCharacters.id, name: nikkeCharacters.name })
     .from(nikkeCharacters)
@@ -110,7 +116,12 @@ async function syncBaseStats(): Promise<BaseStatsResult> {
     return { fetched: 0, unmatched: [], errors: [] };
   }
 
-  const roster = await fetchBlablalinkRoster();
+  // runNikkeSync already pulled the roster (it seeds new characters from it), so
+  // reuse it rather than hitting the CDN twice. Fall back to fetching when that
+  // fetch failed or a caller passes nothing.
+  const roster = rosterFromCaller?.length
+    ? rosterFromCaller
+    : await fetchBlablalinkRoster();
   const resourceIdByName = new Map<string, number>();
   for (const entry of roster) {
     const key = normalizeName(entry.name);
@@ -437,14 +448,23 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
     fetchTsareenaBuilds,
     []
   );
+  // The game's own character list. Fetched up front (rather than only inside the
+  // roledata backfill) because it now also SEEDS characters the other sources
+  // don't list yet — a unit released today exists here days before Synergy has it.
+  const blablalinkRoster = await guarded<BlablalinkRosterEntry[]>(
+    'blablalink-roster',
+    fetchBlablalinkRoster,
+    []
+  );
 
-  const { characters, unmatched } = buildCharacters({
+  const { characters, unmatched, blablalinkSeeded } = buildCharacters({
     synergyCharacters,
     dictionary,
     arenaStats,
     attributes,
     sheetPriority,
     sheetBuilds,
+    blablalinkRoster,
   });
 
   // Attach Prydwen tiers from the committed cache (no runtime fetch — Prydwen is
@@ -514,7 +534,7 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
   // degrades the run to "partial".
   const baseStats = await guarded<BaseStatsResult>(
     'base-stats',
-    syncBaseStats,
+    () => syncBaseStats(blablalinkRoster),
     {
       fetched: 0,
       unmatched: [],
@@ -571,7 +591,9 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
         favoriteItemSkills: favoriteItem.fetched,
         skillCooldowns: skillCooldowns.fetched,
         portraits,
+        blablalinkSeeded: blablalinkSeeded.length,
       },
+      seeded: { blablalink: blablalinkSeeded },
       unmatched: {
         ...unmatched,
         baseStats: baseStats.unmatched,
@@ -591,6 +613,7 @@ export async function runNikkeSync(trigger?: string): Promise<SyncSummary> {
     favoriteItemSkills: favoriteItem.fetched,
     skillCooldowns: skillCooldowns.fetched,
     portraits,
+    blablalinkSeeded: blablalinkSeeded.length,
     errors,
     unmatched: {
       untranslated: unmatched.untranslated.length,

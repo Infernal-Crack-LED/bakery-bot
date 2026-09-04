@@ -182,6 +182,45 @@ describe('buildCharacters', () => {
     expect(res.unmatched.sheet).not.toContain('Anne: Miracle Fairy');
   });
 
+  it('seeds characters only blablalink lists yet (new releases)', () => {
+    const res = buildCharacters({
+      synergyCharacters: [{ id: 1, name: 'モラン', imageFilename: '0001.jpg' }],
+      dictionary: { モラン: 'Moran' },
+      arenaStats: [],
+      sheetPriority: [],
+      blablalinkRoster: [
+        { resourceId: 500, name: 'Moran', nameCode: 1 },
+        { resourceId: 871, name: 'Yukiko', nameCode: 5180 },
+      ],
+    });
+    // The unit no other source has yet gets a row, keyed like any other.
+    const yukiko = res.characters.find((c) => c.id === 'yukiko');
+    expect(yukiko?.name).toBe('Yukiko');
+    expect(yukiko?.synergyId).toBeUndefined();
+    expect(yukiko?.aliases).toEqual([]);
+    expect(res.blablalinkSeeded).toEqual(['Yukiko']);
+    // Synergy still owns the units it does list — no duplicate Moran.
+    expect(res.characters.filter((c) => c.id === 'moran')).toHaveLength(1);
+    expect(res.characters.find((c) => c.id === 'moran')?.synergyId).toBe(1);
+  });
+
+  it('does not let blablalink duplicates or tentative rows create bogus units', () => {
+    const res = buildCharacters({
+      synergyCharacters: [],
+      dictionary: {},
+      arenaStats: [],
+      sheetPriority: [],
+      blablalinkRoster: [
+        { resourceId: 1, name: 'Rei', nameCode: 1 },
+        { resourceId: 2, name: 'Rei', nameCode: 2 },
+        // Parentheticals normalize away, so this is the same "rei" again.
+        { resourceId: 3, name: 'Rei (Tentative Name)', nameCode: 3 },
+      ],
+    });
+    expect(res.characters.filter((c) => c.id === 'rei')).toHaveLength(1);
+    expect(res.blablalinkSeeded).toEqual(['Rei']);
+  });
+
   it('joins profile attributes by the shared Japanese name, keeping 3RL', () => {
     const res = buildCharacters({
       synergyCharacters: [
